@@ -59,14 +59,17 @@ Obsidian 插件：鼠标移到文件浏览器中的**文件夹**上时，标题�
 
 ## Screenshots / 截图
 
-> 📷 **To be added** — drop your real screenshots into `docs/` and update the file names below.
-> 📷 **待补充**：把真实截图放进 `docs/` 目录，并把下方文件名替换为实际文件名。
+**Hover icon** — 鼠标悬停文件夹时显示终端图标
 
-| Preview | English caption | 中文说明 |
-| :--- | :--- | :--- |
-| `docs/screenshot-hover.png` | Hovering a folder reveals the terminal icon | 鼠标悬停文件夹时显示终端图标 |
-| `docs/screenshot-tabs.png` | Multi-tab terminal with right-click menu | 多标签终端与右键菜单 |
-| `docs/screenshot-settings.png` | Per-tab settings popup | 标签设置弹窗 |
+![](docs/screenshot-hover.png)
+
+**Multi-tab terminal** — 多标签终端与右键菜单
+
+![](docs/screenshot-tabs.png)
+
+**Per-tab settings** — 标签设置弹窗
+
+![](docs/screenshot-settings.png)
 
 ## Installation / 安装
 

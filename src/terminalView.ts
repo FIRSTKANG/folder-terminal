@@ -1,7 +1,6 @@
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { Terminal } from "@xterm/xterm";
-import xtermCss from "@xterm/xterm/css/xterm.css";
 import { ItemView, Menu, TFolder, TAbstractFile, WorkspaceLeaf, setIcon } from "obsidian";
 import * as fs from "fs";
 import * as path from "path";
@@ -210,7 +209,7 @@ export class FolderTerminalView extends ItemView {
 
 	private async setupView(): Promise<void> {
 		this.containerEl.classList.add("ft-terminal-view");
-		this.injectXtermCss();
+		// xterm.css 已合并到全局 styles.css（Obsidian 禁止动态创建 <style> 元素）
 		this.applyStatusBarHeight(); // 探测并写入真实状态栏高度，避免 view 底部被遮住
 
 		// 【布局保底】containerEl 即 .workspace-leaf-content，其 containing block 是
@@ -1317,14 +1316,8 @@ export class FolderTerminalView extends ItemView {
 		this.renderTabBar();
 	}
 
-	/** xterm.js 自带样式以字符串注入一次，避免单独发 CSS 文件 */
-	private injectXtermCss(): void {
-		if (document.getElementById("ft-xterm-css")) return;
-		const style = document.createElement("style");
-		style.id = "ft-xterm-css";
-		style.textContent = xtermCss;
-		document.head.appendChild(style);
-	}
+	// xterm.js 自带样式已合并到全局 styles.css（见 esbuild build 与 styles.css 末尾），
+	// Obsidian 评审禁止插件运行时 document.createElement('style') + appendChild('head')。
 
 	/**
 	 * 探测 Obsidian 状态栏真实高度，写入 CSS 变量 `--status-bar-height`，

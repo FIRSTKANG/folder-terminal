@@ -66,11 +66,15 @@ export const DEFAULT_SETTINGS: FolderTerminalSettings = {
 /**
  * 设置面板（Obsidian 1.13+ declarative settings API）。
  *
- * - 不再重写 `display()` —— 框架读取 `getSettingDefinitions()` 自动渲染。
+ * - 正常路径不再重写 `display()` —— 框架读取 `getSettingDefinitions()` 自动渲染。
  * - 持久化走 `PluginSettingTab` 默认 `setControlValue` 钩子（写 `this.plugin.settings`
  *   并 `await this.plugin.saveData()`）。
  * - 仅对「需要后置副作用」的键（language / shell / initCommand）重写
- *   `setControlValue`，其它键一律委托默认实现。
+ *   `setControlValue`：
+ *   · language: 切语言时 setLocale + display() 重建整 tab（1.13.0 update() 不充分，
+ *     已在源码注释中说明） + 通知已打开的 leaf
+ *   · shell / initCommand: 入参需 trim（避免首尾空格）
+ *   · 其它键一律委托默认实现
  */
 export class FolderTerminalSettingTab extends PluginSettingTab {
 	constructor(app: App, private plugin: FolderTerminalPlugin) {
@@ -147,7 +151,12 @@ export class FolderTerminalSettingTab extends PluginSettingTab {
 
 	/**
 	 * 后置副作用钩子：
-	 * - language: 改完要 setLocale + update() 重渲（让 desc 中的占位符新值生效）+ 通知已打开的 leaf
+	 * - language: 改完要 setLocale + display() 重建整 tab（让所有 setting 的 name/desc
+	 *   用新 locale 重新求值；1.13.0 的 update() 只刷控件不重渲已缓存的 label，因此
+	 *   在切语言场景下必须退回 display() 才能让全部 5 项标签/副标题同步刷新）。
+	 *   display() 在 1.13.0 是 deprecated，但仅用于这一处兜底，正常路径仍走
+	 *   声明式 API（bot 仅 Recommendation 级别，不阻断 Publish）。
+	 *   之后通知已打开的 leaf 触发 onLocaleChanged 重渲终端内部文案。
 	 * - shell / initCommand: 入参需 trim（避免首尾空格）
 	 * - 其余键直接走默认实现
 	 */
@@ -158,7 +167,8 @@ export class FolderTerminalSettingTab extends PluginSettingTab {
 				this.plugin.settings.language = v;
 				await this.plugin.saveSettings();
 				setLocale(resolveLocale(v, getLanguage()));
-				this.update();
+				// display() 触发整 tab 销毁重建：5 个 setting 的 name/desc 重新走 t() 取词
+				this.display();
 				for (const leaf of this.plugin.app.workspace.getLeavesOfType(
 					"folder-terminal-view",
 				)) {

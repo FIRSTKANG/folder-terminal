@@ -110,7 +110,7 @@ export class TabSettingsModal extends Modal {
 		});
 
 		new Setting(el).setName(t("modal.fontSize")).addSlider((slider: SliderComponent) => {
-			slider.setLimits(10, 22, 1).setValue(this.draft.fontSize).setDynamicTooltip();
+			slider.setLimits(10, 22, 1).setValue(this.draft.fontSize);
 			slider.onChange((value) => (this.draft.fontSize = value));
 		});
 

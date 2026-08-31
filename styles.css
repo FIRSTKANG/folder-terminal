@@ -177,9 +177,10 @@
 	display: block;
 }
 
-/* 通用「隐藏」类——用于原来用 el.style.display = "none" 的按钮 */
-.ft-hidden {
-	display: none !important;
+/* 通用「隐藏」类——用于原来用 el.style.display = "none" 的按钮。
+   通过 .ft-terminal-view 父级提升 specificity，等价于 !important 的覆盖效果。 */
+.ft-terminal-view .ft-hidden {
+	display: none;
 }
 
 /* 双击重命名时 inline 替换 label 文本的输入框 */

@@ -944,7 +944,7 @@ export class FolderTerminalView extends ItemView {
 			dot.style.backgroundColor = tab.color;
 		}
 
-		const label = item.createSpan({ cls: "ft-tab-label", text: tabLabel(tab) });
+		item.createSpan({ cls: "ft-tab-label", text: tabLabel(tab) });
 
 		const close = item.createEl("button", {
 			cls: "ft-tab-close",

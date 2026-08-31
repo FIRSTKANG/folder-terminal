@@ -1,7 +1,7 @@
 import { App, PluginSettingTab, Setting, getLanguage } from "obsidian";
 import type FolderTerminalPlugin from "./main";
 import type { TerminalTab } from "./terminalView";
-import { t, setLocale, resolveLocale, type Locale, type LanguageSetting } from "./i18n";
+import { t, setLocale, resolveLocale, type LanguageSetting } from "./i18n";
 
 /** 单个文件夹路径记忆的标签自定义设置（关掉再重开同一文件夹也能恢复） */
 export interface PathTabOverrides {
@@ -111,7 +111,6 @@ export class FolderTerminalSettingTab extends PluginSettingTab {
 				slider
 					.setLimits(10, 22, 1)
 					.setValue(this.plugin.settings.fontSize)
-					.setDynamicTooltip()
 					.onChange(async (value) => {
 						this.plugin.settings.fontSize = value;
 						await this.plugin.saveSettings();

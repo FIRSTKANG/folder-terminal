@@ -1,0 +1,28 @@
+{
+	"name": "obsidian-folder-terminal",
+	"version": "0.4.6",
+	"description": "Hover over a folder in the file explorer to reveal a terminal icon; click it to open a real shell (PTY) at the bottom of Obsidian, rooted at that folder.",
+	"main": "main.js",
+	"scripts": {
+		"dev": "node esbuild.config.mjs",
+		"build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
+		"version": "node version-bump.mjs && git add manifest.json versions.json",
+		"smoke:pty": "node scripts/pty-smoke.js"
+	},
+	"keywords": ["obsidian", "plugin", "terminal", "pty", "shell"],
+	"author": "FIRST KANG",
+	"license": "MIT",
+	"devDependencies": {
+		"@types/node": "^20.11.0",
+		"builtin-modules": "^3.3.0",
+		"esbuild": "^0.20.0",
+		"obsidian": "^1.4.11",
+		"tslib": "^2.6.2",
+		"typescript": "^5.3.3"
+	},
+	"dependencies": {
+		"@xterm/addon-fit": "^0.10.0",
+		"@xterm/addon-web-links": "^0.11.0",
+		"@xterm/xterm": "^5.5.0"
+	}
+}

@@ -38,6 +38,13 @@ interface TerminalViewState {
 	cwd?: string; // 兼容 v0.1/v0.2 的单标签状态
 }
 
+/** Obsidian 内部拖拽时 dragManager.draggables 中单个可拖拽项的最小结构 */
+interface DragManagerItem {
+	file?: TAbstractFile;
+	files?: TAbstractFile[];
+	folders?: TFolder[];
+}
+
 const FONT_FAMILY = 'ui-monospace, "SF Mono", Menlo, Consolas, monospace';
 
 // GitHub 风格配色
@@ -145,7 +152,7 @@ export class FolderTerminalView extends ItemView {
 	}
 
 	/** 工作区布局保存时调用，用于重启后恢复标签 */
-	getState(): any {
+	getState(): Record<string, unknown> {
 		return { tabs: this.tabs, activeTab: this.activeTabId };
 	}
 
@@ -350,7 +357,7 @@ export class FolderTerminalView extends ItemView {
 
 		const delays = [80, 200, 500, 1200];
 		for (const d of delays) {
-			setTimeout(() => {
+			window.setTimeout(() => {
 				this.forcePositioning();
 				this.fitActive();
 			}, d);
@@ -446,13 +453,13 @@ export class FolderTerminalView extends ItemView {
 	private resolveDropPath(e: DragEvent): string | null {
 		const dt = e.dataTransfer;
 		// 1. 从 Finder / 资源管理器等系统文件管理器拖入
-		const localFile = dt?.files?.[0] as (File & { path?: string }) | undefined;
-		if (localFile && localFile.path) {
-			const p = localFile.path;
+		const localFile = dt?.files?.[0];
+		const localPath = (localFile as unknown as { path?: string } | undefined)?.path;
+		if (localPath) {
 			try {
-				return fs.statSync(p).isDirectory() ? p : path.dirname(p);
+				return fs.statSync(localPath).isDirectory() ? localPath : path.dirname(localPath);
 			} catch {
-				return path.dirname(p);
+				return path.dirname(localPath);
 			}
 		}
 		// 2. Obsidian 内部拖拽：dataTransfer 常含 [[wikilink]] 或纯文件名
@@ -468,8 +475,10 @@ export class FolderTerminalView extends ItemView {
 			}
 		}
 		// 3. 兜底：Obsidian 内部拖拽的 draggables（dragManager 在拖拽进行中持有当前项）
-		const draggables = (this.app as unknown as { dragManager?: { draggables?: any[] } })
-			.dragManager?.draggables;
+		const dragManager = (this.app as unknown as {
+			dragManager?: { draggables?: DragManagerItem[] } | undefined;
+		}).dragManager;
+		const draggables = dragManager?.draggables;
 		if (Array.isArray(draggables) && draggables.length) {
 			const d = draggables[0];
 			const f = d.file ?? d.files?.[0] ?? d.folders?.[0];
@@ -604,7 +613,7 @@ export class FolderTerminalView extends ItemView {
 		this.createTerminalRuntime(tab);
 		this.startSession(tab);
 		if (this.activeTabId === tab.id) {
-			requestAnimationFrame(() => this.fitActive());
+			window.requestAnimationFrame(() => this.fitActive());
 		}
 	}
 
@@ -652,7 +661,7 @@ export class FolderTerminalView extends ItemView {
 		const init = this.effectiveSettings(tab).initCommand;
 		if (init && init.trim()) {
 			const cmd = init.trim();
-			setTimeout(() => {
+			window.setTimeout(() => {
 				try {
 					session.write(cmd + "\r");
 				} catch {
@@ -675,13 +684,13 @@ export class FolderTerminalView extends ItemView {
 		// 激活态也持久化，避免 "Reload without saving" 后激活标签漂移
 		this.persist();
 		// rAF 让样式应用完再 fit；之后用同样的多 schedule 覆盖 layout 滞后
-		requestAnimationFrame(() => {
+		window.requestAnimationFrame(() => {
 			this.fitActive();
 			this.focusTerminal(id);
 		});
 		// 切 tab 时也调度几次，因为不同 tab 的容器尺寸可能不同
 		const delays = [80, 200, 500];
-		for (const d of delays) setTimeout(() => this.fitActive(), d);
+		for (const d of delays) window.setTimeout(() => this.fitActive(), d);
 	}
 
 	/**
@@ -703,8 +712,8 @@ export class FolderTerminalView extends ItemView {
 			}
 		};
 		doFocus();
-		setTimeout(doFocus, 100);
-		setTimeout(doFocus, 300);
+		window.setTimeout(doFocus, 100);
+		window.setTimeout(doFocus, 300);
 	}
 
 	/** 销毁一个标签的运行时与 DOM（不重渲染、不持久化，由调用方统一处理）。 */
@@ -1130,8 +1139,8 @@ export class FolderTerminalView extends ItemView {
 
 	/** 标签溢出时重算：把放不下的末尾标签隐藏，收进「▾」下拉。延迟到下一帧以拿到真实宽度。 */
 	private scheduleOverflow(): void {
-		requestAnimationFrame(() => this.layoutOverflow());
-		setTimeout(() => this.layoutOverflow(), 60);
+		window.requestAnimationFrame(() => this.layoutOverflow());
+		window.setTimeout(() => this.layoutOverflow(), 60);
 	}
 
 	/** 根据标签栏可用宽度，隐藏放不下的末尾标签（始终保留激活标签可见），并更新「▾」徽标。 */
@@ -1230,7 +1239,7 @@ export class FolderTerminalView extends ItemView {
 		// 尚未结束。若此刻同步创建并聚焦输入框，紧随其后的鼠标事件会把焦点从新 input
 		// 抢走并立即触发 blur → commit → 重建 → 输入框一闪即逝。
 		// 延迟到下一帧再创建并聚焦，确保没有任何进行中的事件抢焦点，输入框才能稳定停留。
-		requestAnimationFrame(() => {
+		window.requestAnimationFrame(() => {
 			const tab2 = this.tabs.find((t) => t.id === id);
 			const labelEl2 = this.tabBarEl?.querySelector<HTMLElement>(
 				`.ft-tab[data-tab-id="${id}"] .ft-tab-label`,
@@ -1355,8 +1364,8 @@ export class FolderTerminalView extends ItemView {
 			this.fitActive();
 		}));
 		// 状态栏可能在 view 渲染后才完全加载，延迟再探测两次
-		setTimeout(write, 200);
-		setTimeout(write, 1000);
+		window.setTimeout(write, 200);
+		window.setTimeout(write, 1000);
 	}
 }
 

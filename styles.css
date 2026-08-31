@@ -587,10 +587,10 @@
     overflow: hidden;
 }
 
-.xterm-dim {
+.ft-terminal-view .xterm-dim {
     /* Dim should not apply to background, so the opacity of the foreground color is applied
      * explicitly in the generated class and reset to 1 here */
-    opacity: 1 !important;
+    opacity: 1;
 }
 
 .xterm-underline-1 { text-decoration: underline; }

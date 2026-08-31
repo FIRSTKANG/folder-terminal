@@ -27,7 +27,7 @@ export default class FolderTerminalPlugin extends Plugin {
 	private lastLeaf: WorkspaceLeaf | null = null;
 
 	async onload(): Promise<void> {
-		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+		this.settings = Object.assign({}, DEFAULT_SETTINGS, ((await this.loadData()) as Partial<FolderTerminalSettings> | null) ?? {});
 		// 应用已保存的界面语言（"system" 按 Obsidian 界面语言解析），让后续 t() 取词正确（命令名、初始渲染等）
 		setLocale(resolveLocale(this.settings.language, getLanguage()));
 
@@ -185,7 +185,7 @@ export default class FolderTerminalPlugin extends Plugin {
 			// 复用面板：加入（或聚焦）该文件夹的标签页，会话保持
 			leaf!.view.addTab(folderPath);
 			this.lastLeaf = leaf;
-			this.app.workspace.revealLeaf(leaf!);
+			void this.app.workspace.revealLeaf(leaf!);
 			return;
 		}
 
@@ -205,6 +205,6 @@ export default class FolderTerminalPlugin extends Plugin {
 		if (view instanceof FolderTerminalView) {
 			view.addTab(folderPath);
 		}
-		this.app.workspace.revealLeaf(newLeaf);
+		void this.app.workspace.revealLeaf(newLeaf);
 	}
 }

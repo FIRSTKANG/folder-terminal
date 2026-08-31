@@ -69,7 +69,7 @@ export class FolderIconManager {
 	}
 
 	private injectIfFolder(el: HTMLElement): void {
-		const row = (el.closest(".tree-item") as HTMLElement | null) ?? el;
+		const row = el.closest(".tree-item") ?? el;
 		// 文件夹判定（任一命中）；文件行排除（任一命中）
 		const isFolder =
 			row.classList.contains("nav-folder") ||
@@ -111,7 +111,7 @@ export class FolderIconManager {
 	 * 2. Obsidian 1.13+ 移除了该属性：改用文件浏览器视图的内部索引
 	 *    fileItems（{ 路径: { el } }），用我们命中的行元素反查路径
 	 */
-	private resolveFolderPath(el: HTMLElement, row: HTMLElement): string {
+	private resolveFolderPath(el: HTMLElement, row: Element): string {
 		const direct =
 			el.getAttribute("data-path") ??
 			row.getAttribute("data-path") ??

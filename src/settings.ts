@@ -1,8 +1,8 @@
 import {
 	App,
 	PluginSettingTab,
-	Setting,
 	getLanguage,
+	type SettingDefinitionItem,
 } from "obsidian";
 import type FolderTerminalPlugin from "./main";
 import type { TerminalTab } from "./terminalView";
@@ -64,134 +64,151 @@ export const DEFAULT_SETTINGS: FolderTerminalSettings = {
 };
 
 /**
- * 设置面板。
+ * 设置面板（Obsidian 1.13+ 声明式 settings API）。
  *
- * 设计决策：用 **imperative display()** 路径（每项用 `new Setting()` 显式构建，
- * 控件当前值显式 `.setValue(this.plugin.settings.X)`）。
+ * 设计要点：
+ * - `getSettingDefinitions()` 在每次 `update()` / 打开设置时都会**重新被调用**，
+ *   因此其中所有 `name`/`desc`/`options` 都通过 `t()` 实时按当前 locale 求值。
+ * - 切语言时，在 `setControlValue("language")` 里持久化后调 `this.update()`，
+ *   框架会重新调用 `getSettingDefinitions()` 并以新 locale 重渲整 tab ——
+ *   所有 setting 的标签、副标题、下拉项文案、控件当前值**同步刷新**。
+ * - 控件当前值一律由 `getControlValue(key)` 从 `plugin.settings` 读取，
+ *   用户改值走 `setControlValue(key, value)` 持久化，不依赖任何命令式 DOM 状态。
+ * - 不重写 `display()`（1.13+ 声明式模式下 display() 不会被调用，且已弃用）。
  *
- * 为什么不走 Obsidian 1.13+ 的声明式 `getSettingDefinitions()`：
- * 1. 切语言场景下需要销毁整 tab 并用新 locale 重新求值每个 setting 的 name/desc；
- *    `update()` 不会重建已缓存的 setting 实例 label。
- * 2. `display()` 重建时，声明式 API 内部**不会**把 `plugin.settings` 的最新值
- *    重新绑回每个控件——dropdown 的当前值停留在旧 state，导致"切到中文后控件
- *    还显示 English"这种状态错位。
- * 退回 imperative 路径后，每个控件当前值都是显式 `.setValue(settings.X)`，
- * 切语言只需调 `this.display()` 即可同时刷新 5 个 setting 的 label + 控件当前值。
- *
- * bot 报告相关：
- * - "display is deprecated"：🔵 Recommendation 级别，不阻断 Publish。
- * - "does not implement getSettingDefinitions"：🟠 Warning 级别，不阻断 Publish。
- * - 失去的能力：Obsidian 设置搜索（在设置面板顶部搜索「界面语言」「Default shell」等）
- *   不会再匹配到本插件的设置项。如未来官方 API 修复上述两个问题，可再迁回声明式。
+ * 注：本插件使用自建 i18n（`./i18n` + `t()`），不走 Obsidian 原生 i18n 文件夹，
+ * 因此语言切换的实时刷新由上面的 `update()` 机制保证。
  */
 export class FolderTerminalSettingTab extends PluginSettingTab {
 	constructor(app: App, private plugin: FolderTerminalPlugin) {
 		super(app, plugin);
 	}
 
-	override display(): void {
-		const { containerEl } = this;
-		containerEl.empty();
+	/** 声明式设置定义；每次 update() / 打开设置都会被重新调用（故 t() 实时求值） */
+	override getSettingDefinitions(): SettingDefinitionItem[] {
+		return [
+			{
+				name: t("settings.language.name"),
+				desc: t("settings.language.desc"),
+				control: {
+					key: "language",
+					type: "dropdown",
+					options: {
+						system: t("settings.language.system"),
+						"zh-CN": t("settings.language.zh"),
+						en: t("settings.language.en"),
+					},
+				},
+			},
+			{
+				name: t("settings.shell.name"),
+				desc: t("settings.shell.desc"),
+				control: {
+					key: "shell",
+					type: "text",
+					placeholder: "/bin/zsh",
+				},
+			},
+			{
+				name: t("settings.fontSize.name"),
+				desc: t("settings.fontSize.desc", { size: this.plugin.settings.fontSize }),
+				control: {
+					key: "fontSize",
+					type: "slider",
+					min: 10,
+					max: 22,
+					step: 1,
+				},
+			},
+			{
+				name: t("settings.colorScheme.name"),
+				desc: t("settings.colorScheme.desc"),
+				control: {
+					key: "colorScheme",
+					type: "dropdown",
+					options: {
+						system: t("settings.colorScheme.system"),
+						dark: t("settings.colorScheme.dark"),
+						light: t("settings.colorScheme.light"),
+					},
+				},
+			},
+			{
+				name: t("settings.reuseLeaf.name"),
+				desc: t("settings.reuseLeaf.desc"),
+				control: {
+					key: "reuseLeaf",
+					type: "toggle",
+				},
+			},
+			{
+				name: t("settings.initCommand.name"),
+				desc: t("settings.initCommand.desc"),
+				control: {
+					key: "initCommand",
+					type: "text",
+					placeholder: t("settings.initCommand.placeholder"),
+				},
+			},
+		];
+	}
 
-		// ---------- 界面语言 ----------
-		new Setting(containerEl)
-			.setName(t("settings.language.name"))
-			.setDesc(t("settings.language.desc"))
-			.addDropdown((dd) =>
-				dd
-					.addOption("system", t("settings.language.system"))
-					.addOption("zh-CN", t("settings.language.zh"))
-					.addOption("en", t("settings.language.en"))
-					.setValue(this.plugin.settings.language)
-					.onChange(async (v) => {
-						const next = v as LanguageSetting;
-						this.plugin.settings.language = next;
-						await this.plugin.saveSettings();
-						setLocale(resolveLocale(next, getLanguage()));
-						// 切语言后整 tab 用新 locale + 最新 settings 重建：
-						// 所有 5 个 setting 的 name/desc + 控件当前值都会被重渲
-						this.display();
-						for (const leaf of this.plugin.app.workspace.getLeavesOfType(
-							"folder-terminal-view",
-						)) {
-							const vw = leaf.view as unknown as { onLocaleChanged?: () => void };
-							vw.onLocaleChanged?.();
-						}
-					}),
-			);
+	/** 读取控件当前值（每次渲染都被调用） */
+	override getControlValue(key: string): unknown {
+		switch (key) {
+			case "language":
+				return this.plugin.settings.language;
+			case "shell":
+				return this.plugin.settings.shell;
+			case "fontSize":
+				return this.plugin.settings.fontSize;
+			case "colorScheme":
+				return this.plugin.settings.colorScheme;
+			case "reuseLeaf":
+				return this.plugin.settings.reuseLeaf;
+			case "initCommand":
+				return this.plugin.settings.initCommand ?? "";
+			default:
+				return undefined;
+		}
+	}
 
-		// ---------- 默认 Shell ----------
-		new Setting(containerEl)
-			.setName(t("settings.shell.name"))
-			.setDesc(t("settings.shell.desc"))
-			.addText((text) =>
-				text
-					.setPlaceholder("/bin/zsh")
-					.setValue(this.plugin.settings.shell)
-					.onChange(async (v) => {
-						this.plugin.settings.shell = v.trim();
-						await this.plugin.saveSettings();
-					}),
-			);
-
-		// ---------- 字号 ----------
-		new Setting(containerEl)
-			.setName(t("settings.fontSize.name"))
-			.setDesc(t("settings.fontSize.desc", { size: this.plugin.settings.fontSize }))
-			.addSlider((slider) =>
-				slider
-					.setLimits(10, 22, 1)
-					.setValue(this.plugin.settings.fontSize)
-					.setDynamicTooltip()
-					.onChange(async (v) => {
-						this.plugin.settings.fontSize = v;
-						await this.plugin.saveSettings();
-						// 让副标题里的 "current Xpx" 立即更新
-						this.display();
-					}),
-			);
-
-		// ---------- 配色方案 ----------
-		new Setting(containerEl)
-			.setName(t("settings.colorScheme.name"))
-			.setDesc(t("settings.colorScheme.desc"))
-			.addDropdown((dd) =>
-				dd
-					.addOption("system", t("settings.colorScheme.system"))
-					.addOption("dark", t("settings.colorScheme.dark"))
-					.addOption("light", t("settings.colorScheme.light"))
-					.setValue(this.plugin.settings.colorScheme)
-					.onChange(async (v) => {
-						this.plugin.settings.colorScheme = v as FolderTerminalSettings["colorScheme"];
-						await this.plugin.saveSettings();
-					}),
-			);
-
-		// ---------- 复用终端面板 ----------
-		new Setting(containerEl)
-			.setName(t("settings.reuseLeaf.name"))
-			.setDesc(t("settings.reuseLeaf.desc"))
-			.addToggle((tg) =>
-				tg
-					.setValue(this.plugin.settings.reuseLeaf)
-					.onChange(async (v) => {
-						this.plugin.settings.reuseLeaf = v;
-						await this.plugin.saveSettings();
-					}),
-			);
-
-		// ---------- 默认启动命令 ----------
-		new Setting(containerEl)
-			.setName(t("settings.initCommand.name"))
-			.setDesc(t("settings.initCommand.desc"))
-			.addText((text) =>
-				text
-					.setPlaceholder(t("settings.initCommand.placeholder"))
-					.setValue(this.plugin.settings.initCommand ?? "")
-					.onChange(async (v) => {
-						this.plugin.settings.initCommand = v.trim();
-						await this.plugin.saveSettings();
-					}),
-			);
+	/** 用户改值时的持久化 + 后置副作用钩子 */
+	override async setControlValue(key: string, value: unknown): Promise<void> {
+		switch (key) {
+			case "language": {
+				const next = value as LanguageSetting;
+				this.plugin.settings.language = next;
+				await this.plugin.saveSettings();
+				setLocale(resolveLocale(next, getLanguage()));
+				// 整 tab 用新 locale 重渲：所有标签/副标题/下拉项/控件当前值同步刷新
+				this.update();
+				for (const leaf of this.plugin.app.workspace.getLeavesOfType(
+					"folder-terminal-view",
+				)) {
+					const vw = leaf.view as unknown as { onLocaleChanged?: () => void };
+					vw.onLocaleChanged?.();
+				}
+				return;
+			}
+			case "shell":
+				this.plugin.settings.shell = (value as string).trim();
+				break;
+			case "fontSize":
+				this.plugin.settings.fontSize = value as number;
+				// 副标题里的 "current Xpx" 需要重渲，刷新整 tab
+				this.update();
+				break;
+			case "colorScheme":
+				this.plugin.settings.colorScheme = value as FolderTerminalSettings["colorScheme"];
+				break;
+			case "reuseLeaf":
+				this.plugin.settings.reuseLeaf = value as boolean;
+				break;
+			case "initCommand":
+				this.plugin.settings.initCommand = (value as string).trim();
+				break;
+		}
+		await this.plugin.saveSettings();
 	}
 }

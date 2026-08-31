@@ -2,7 +2,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { Terminal } from "@xterm/xterm";
 import xtermCss from "@xterm/xterm/css/xterm.css";
-import { ItemView, Menu, TFolder, TAbstractFile, WorkspaceLeaf } from "obsidian";
+import { ItemView, Menu, TFolder, TAbstractFile, WorkspaceLeaf, setIcon } from "obsidian";
 import * as fs from "fs";
 import * as path from "path";
 import { spawnShell, type ShellSession } from "./pty";
@@ -89,19 +89,6 @@ const LIGHT_THEME = {
 	brightCyan: "#1b7c83",
 	brightWhite: "#eff2f5",
 };
-
-const X_SVG = `
-<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-  <line x1="18" y1="6" x2="6" y2="18"></line>
-  <line x1="6" y1="6" x2="18" y2="18"></line>
-</svg>`;
-
-const PLUS_SVG = `
-<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-  <line x1="12" y1="5" x2="12" y2="19"></line>
-  <line x1="5" y1="12" x2="19" y2="12"></line>
-</svg>`;
-
 /**
  * 承载 xterm.js 的多标签终端视图。
  *
@@ -230,21 +217,13 @@ export class FolderTerminalView extends ItemView {
 		// .workspace-leaf（position:relative）。用 position:absolute + inset:0 即可精确
 		// 填满整个 leaf，不依赖任何父级 height 链传递。
 		// 底部留出 --status-bar-height（状态栏是 viewport-fixed overlay，会盖住 leaf 底部）。
-		// 注意：top/left/right/bottom 必须是相对 containing block 的【偏移】，不能填
-		// getBoundingClientRect() 的 viewport 坐标（那是 absolute 定位的致命误区）。
-		this.containerEl.style.position = "absolute";
-		this.containerEl.style.inset = "0";
-		this.containerEl.style.bottom = "var(--status-bar-height, 31px)";
-		this.containerEl.style.display = "flex";
-		this.containerEl.style.flexDirection = "column";
-		this.containerEl.style.padding = "0";
-		this.containerEl.style.overflow = "hidden";
-		this.containerEl.style.boxSizing = "border-box";
-		this.containerEl.style.minHeight = "0";
+// 容器样式完全由 styles.css 接管（.ft-terminal-view 等三选器规则）
+	// 这里只设最低优先级兜底 class（避免被某些 Obsidian 版本下默认 class 覆盖）：
+	this.containerEl.addClass("ft-terminal-view");
 
-		// 诊断条已退役（之前 17 轮调试期的临时工具，布局稳定后即移除）。
-		// 当前布局完全可依赖 CSS（position:absolute + inset:0 + 四角锚定），
-		// 不再需要常驻 DOM 干扰视觉。
+	// 诊断条已退役（之前 17 轮调试期的临时工具，布局稳定后即移除）。
+	// 当前布局完全可依赖 CSS（position:absolute + inset:0 + 四角锚定），
+	// 不再需要常驻 DOM 干扰视觉。
 
 		this.tabBarEl = this.containerEl.createDiv({ cls: "ft-tab-bar" });
 		this.hostEl = this.containerEl.createDiv({ cls: "ft-terminal-hosts" });
@@ -358,14 +337,8 @@ export class FolderTerminalView extends ItemView {
 	 * 不需要任何坐标运算；底部用 var(--status-bar-height) 让出状态栏即可。
 	 */
 	private forcePositioning(): void {
-		this.containerEl.style.position = "absolute";
-		this.containerEl.style.top = "0";
-		this.containerEl.style.left = "0";
-		this.containerEl.style.right = "0";
-		this.containerEl.style.bottom = "var(--status-bar-height, 31px)";
-		this.containerEl.style.display = "flex";
-		this.containerEl.style.flexDirection = "column";
-		this.containerEl.style.boxSizing = "border-box";
+		// 容器样式完全由 styles.css 接管（.ft-terminal-view 等三选器规则），
+		// 此函数保留为 no-op，供 scheduleRepeatedFit 重复调用以兼容历史调用点。
 	}
 
 	/**
@@ -857,7 +830,7 @@ export class FolderTerminalView extends ItemView {
 		let x: number;
 		if (beforeId) {
 			const before = bar.querySelector<HTMLElement>(`.ft-tab[data-tab-id="${beforeId}"]`);
-			if (!before) { ind.style.display = "none"; return; }
+			if (!before) { ind.removeClass("is-visible"); return; }
 			const barRect = bar.getBoundingClientRect();
 			const r = before.getBoundingClientRect();
 			x = r.left - barRect.left + bar.scrollLeft - 1;
@@ -867,13 +840,13 @@ export class FolderTerminalView extends ItemView {
 			const r = addBtn?.getBoundingClientRect();
 			x = r ? r.left - barRect.left + bar.scrollLeft - 1 : bar.clientWidth - 2;
 		}
-		ind.style.left = `${x}px`;
-		ind.style.display = "block";
+		ind.style.setProperty("--ft-drop-x", `${x}px`);
+		ind.addClass("is-visible");
 	}
 
 	/** 隐藏插入位置指示线。 */
 	private hideDropIndicator(): void {
-		if (this.dropIndicator) this.dropIndicator.style.display = "none";
+		this.dropIndicator?.removeClass("is-visible");
 	}
 
 	private restartActive(): void {
@@ -920,7 +893,7 @@ export class FolderTerminalView extends ItemView {
 			cls: "ft-tab-add",
 			attr: { type: "button", "aria-label": t("tab.newTerminalAria"), title: t("tab.newTerminalTitle") },
 		});
-		addBtn.innerHTML = PLUS_SVG;
+		setIcon(addBtn, "plus");
 		addBtn.addEventListener("click", (evt) => {
 			evt.stopPropagation();
 			this.addTab("");
@@ -931,7 +904,7 @@ export class FolderTerminalView extends ItemView {
 			cls: "ft-overflow-btn",
 			attr: { type: "button", "aria-label": t("tab.moreTabs"), title: t("tab.moreTabs") },
 		});
-		ovBtn.innerHTML = "▾";
+		ovBtn.setText("▾");
 		ovBtn.createSpan({ cls: "ft-overflow-count" });
 		ovBtn.addEventListener("click", (evt) => {
 			evt.stopPropagation();
@@ -940,7 +913,7 @@ export class FolderTerminalView extends ItemView {
 				const el = this.tabBarEl?.querySelector<HTMLElement>(
 					`.ft-tab[data-tab-id="${t.id}"]`,
 				);
-				return el && el.style.display === "none";
+				return el && el.hasClass("ft-hidden");
 			});
 			if (!hidden.length) return;
 			for (const t of hidden) {
@@ -978,7 +951,7 @@ export class FolderTerminalView extends ItemView {
 			cls: "ft-tab-close",
 			attr: { type: "button", "aria-label": t("tab.closeSession"), title: t("tab.closeSession") },
 		});
-		close.innerHTML = X_SVG;
+		setIcon(close, "x");
 		close.addEventListener("click", (evt) => {
 			evt.stopPropagation();
 			this.closeTab(tab.id);
@@ -1167,17 +1140,17 @@ export class FolderTerminalView extends ItemView {
 		const bar = this.tabBarEl;
 		const ovBtn = this.overflowBtn;
 		if (!bar) {
-			if (ovBtn) ovBtn.style.display = "none";
+			ovBtn?.addClass("ft-hidden");
 			return;
 		}
 		const tabs = Array.from(bar.querySelectorAll<HTMLElement>(".ft-tab"));
 		if (!tabs.length) {
-			if (ovBtn) ovBtn.style.display = "none";
+			ovBtn?.addClass("ft-hidden");
 			return;
 		}
 		// 先全部显示再测量真实宽度
-		tabs.forEach((t) => (t.style.display = ""));
-		if (ovBtn) ovBtn.style.display = "";
+		tabs.forEach((t) => t.removeClass("ft-hidden"));
+		ovBtn?.removeClass("ft-hidden");
 		const addBtn = bar.querySelector<HTMLElement>(".ft-tab-add");
 		const addW = addBtn ? addBtn.offsetWidth + 6 : 0;
 		const ovW = ovBtn ? ovBtn.offsetWidth + 6 : 0;
@@ -1190,7 +1163,7 @@ export class FolderTerminalView extends ItemView {
 			total += w;
 		}
 		if (total <= avail) {
-			if (ovBtn) ovBtn.style.display = "none";
+			ovBtn?.addClass("ft-hidden");
 			return;
 		}
 		// 从右往左隐藏，但激活标签始终保留可见
@@ -1203,14 +1176,14 @@ export class FolderTerminalView extends ItemView {
 				i--;
 				continue;
 			}
-			t.style.display = "none";
+			t.addClass("ft-hidden");
 			total -= widths.get(id)!;
 			i--;
 		}
 		if (ovBtn) {
 			const badge = ovBtn.querySelector<HTMLElement>(".ft-overflow-count");
 			if (badge) {
-				const hidden = tabs.filter((t) => t.style.display === "none").length;
+				const hidden = tabs.filter((t) => t.hasClass("ft-hidden")).length;
 				badge.textContent = String(hidden);
 			}
 		}

@@ -159,17 +159,27 @@
 	cursor: grabbing;
 }
 
-/* 拖拽排序时的「插入位置指示线」：一条 accent 竖线，标出松手后标签将落入的位置 */
+/* 拖拽排序时的「插入位置指示线」：一条 accent 竖线，标出松手后标签将落入的位置
+ * 位置：left 由 JS 写入 CSS 变量 --ft-drop-x（避免 inline left 属性被 lint 报错） */
 .ft-drop-indicator {
 	position: absolute;
 	top: 4px;
 	bottom: 4px;
+	left: var(--ft-drop-x, 0);
 	width: 2px;
 	background: var(--interactive-accent);
 	border-radius: 2px;
 	pointer-events: none;
 	display: none;
 	z-index: 10;
+}
+.ft-drop-indicator.is-visible {
+	display: block;
+}
+
+/* 通用「隐藏」类——用于原来用 el.style.display = "none" 的按钮 */
+.ft-hidden {
+	display: none !important;
 }
 
 /* 双击重命名时 inline 替换 label 文本的输入框 */

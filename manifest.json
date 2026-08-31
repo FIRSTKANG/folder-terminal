@@ -1,7 +1,7 @@
 {
 	"id": "folder-terminal",
 	"name": "Folder Terminal",
-	"version": "0.4.6",
+	"version": "0.4.7",
 	"minAppVersion": "1.13.0",
 	"description": "Hover over a folder in the file explorer to reveal a terminal icon; click it to open a real shell (PTY) docked at the bottom, rooted at that folder.",
 	"author": "FIRSTKANG",

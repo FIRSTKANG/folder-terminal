@@ -1,4 +1,9 @@
-import { App, PluginSettingTab, Setting, getLanguage } from "obsidian";
+import {
+	App,
+	PluginSettingTab,
+	getLanguage,
+	type SettingDefinitionItem,
+} from "obsidian";
 import type FolderTerminalPlugin from "./main";
 import type { TerminalTab } from "./terminalView";
 import { t, setLocale, resolveLocale, type LanguageSetting } from "./i18n";
@@ -58,103 +63,120 @@ export const DEFAULT_SETTINGS: FolderTerminalSettings = {
 	tabSettingsByPath: {},
 };
 
+/**
+ * 设置面板（Obsidian 1.13+ declarative settings API）。
+ *
+ * - 不再重写 `display()` —— 框架读取 `getSettingDefinitions()` 自动渲染。
+ * - 持久化走 `PluginSettingTab` 默认 `setControlValue` 钩子（写 `this.plugin.settings`
+ *   并 `await this.plugin.saveData()`）。
+ * - 仅对「需要后置副作用」的键（language / shell / initCommand）重写
+ *   `setControlValue`，其它键一律委托默认实现。
+ */
 export class FolderTerminalSettingTab extends PluginSettingTab {
 	constructor(app: App, private plugin: FolderTerminalPlugin) {
 		super(app, plugin);
 	}
 
-	display(): void {
-		const { containerEl } = this;
-		containerEl.empty();
+	override getSettingDefinitions(): SettingDefinitionItem[] {
+		return [
+			{
+				name: t("settings.language.name"),
+				desc: t("settings.language.desc"),
+				control: {
+					type: "dropdown",
+					key: "language",
+					options: {
+						system: t("settings.language.system"),
+						"zh-CN": t("settings.language.zh"),
+						en: t("settings.language.en"),
+					},
+				},
+			},
+			{
+				name: t("settings.shell.name"),
+				desc: t("settings.shell.desc"),
+				control: {
+					type: "text",
+					key: "shell",
+					placeholder: "/bin/zsh",
+				},
+			},
+			{
+				name: t("settings.fontSize.name"),
+				desc: t("settings.fontSize.desc", { size: this.plugin.settings.fontSize }),
+				control: {
+					type: "slider",
+					key: "fontSize",
+					min: 10,
+					max: 22,
+					step: 1,
+				},
+			},
+			{
+				name: t("settings.colorScheme.name"),
+				desc: t("settings.colorScheme.desc"),
+				control: {
+					type: "dropdown",
+					key: "colorScheme",
+					options: {
+						system: t("settings.colorScheme.system"),
+						dark: t("settings.colorScheme.dark"),
+						light: t("settings.colorScheme.light"),
+					},
+				},
+			},
+			{
+				name: t("settings.reuseLeaf.name"),
+				desc: t("settings.reuseLeaf.desc"),
+				control: {
+					type: "toggle",
+					key: "reuseLeaf",
+				},
+			},
+			{
+				name: t("settings.initCommand.name"),
+				desc: t("settings.initCommand.desc"),
+				control: {
+					type: "text",
+					key: "initCommand",
+					placeholder: t("settings.initCommand.placeholder"),
+				},
+			},
+		];
+	}
 
-		new Setting(containerEl)
-			.setName(t("settings.language.name"))
-			.setDesc(t("settings.language.desc"))
-			.addDropdown((dropdown) =>
-				dropdown
-					.addOption("system", t("settings.language.system"))
-					.addOption("zh-CN", t("settings.language.zh"))
-					.addOption("en", t("settings.language.en"))
-					.setValue(this.plugin.settings.language)
-					.onChange(async (value: LanguageSetting) => {
-						this.plugin.settings.language = value;
-						await this.plugin.saveSettings();
-						setLocale(resolveLocale(value, getLanguage()));
-						// 实时刷新：重渲染设置面板 + 通知已打开的终端视图
-						this.display();
-						for (const leaf of this.plugin.app.workspace.getLeavesOfType(
-							"folder-terminal-view",
-						)) {
-							const v = leaf.view as unknown as { onLocaleChanged?: () => void };
-							v.onLocaleChanged?.();
-						}
-					}),
-			);
-
-		new Setting(containerEl)
-			.setName(t("settings.shell.name"))
-			.setDesc(t("settings.shell.desc"))
-			.addText((text) =>
-				text
-					.setPlaceholder("/bin/zsh")
-					.setValue(this.plugin.settings.shell)
-					.onChange(async (value) => {
-						this.plugin.settings.shell = value.trim();
-						await this.plugin.saveSettings();
-					}),
-			);
-
-		new Setting(containerEl)
-			.setName(t("settings.fontSize.name"))
-			.setDesc(t("settings.fontSize.desc", { size: this.plugin.settings.fontSize }))
-			.addSlider((slider) =>
-				slider
-					.setLimits(10, 22, 1)
-					.setValue(this.plugin.settings.fontSize)
-					.onChange(async (value) => {
-						this.plugin.settings.fontSize = value;
-						await this.plugin.saveSettings();
-					}),
-			);
-
-		new Setting(containerEl)
-			.setName(t("settings.colorScheme.name"))
-			.setDesc(t("settings.colorScheme.desc"))
-			.addDropdown((dropdown) =>
-				dropdown
-					.addOption("system", t("settings.colorScheme.system"))
-					.addOption("dark", t("settings.colorScheme.dark"))
-					.addOption("light", t("settings.colorScheme.light"))
-					.setValue(this.plugin.settings.colorScheme)
-					.onChange(async (value: FolderTerminalSettings["colorScheme"]) => {
-						this.plugin.settings.colorScheme = value;
-						await this.plugin.saveSettings();
-					}),
-			);
-
-		new Setting(containerEl)
-			.setName(t("settings.reuseLeaf.name"))
-			.setDesc(t("settings.reuseLeaf.desc"))
-			.addToggle((toggle) =>
-				toggle
-					.setValue(this.plugin.settings.reuseLeaf)
-					.onChange(async (value) => {
-						this.plugin.settings.reuseLeaf = value;
-						await this.plugin.saveSettings();
-					}),
-			);
-
-		new Setting(containerEl)
-			.setName(t("settings.initCommand.name"))
-			.setDesc(t("settings.initCommand.desc"))
-			.addText((text) =>
-				text
-					.setPlaceholder(t("settings.initCommand.placeholder"))
-					.setValue(this.plugin.settings.initCommand ?? "")
-					.onChange(async (value) => {
-						this.plugin.settings.initCommand = value.trim();
-						await this.plugin.saveSettings();
-					}),
-			);
+	/**
+	 * 后置副作用钩子：
+	 * - language: 改完要 setLocale + update() 重渲（让 desc 中的占位符新值生效）+ 通知已打开的 leaf
+	 * - shell / initCommand: 入参需 trim（避免首尾空格）
+	 * - 其余键直接走默认实现
+	 */
+	override async setControlValue(key: string, value: unknown): Promise<void> {
+		switch (key) {
+			case "language": {
+				const v = value as LanguageSetting;
+				this.plugin.settings.language = v;
+				await this.plugin.saveSettings();
+				setLocale(resolveLocale(v, getLanguage()));
+				this.update();
+				for (const leaf of this.plugin.app.workspace.getLeavesOfType(
+					"folder-terminal-view",
+				)) {
+					const vw = leaf.view as unknown as { onLocaleChanged?: () => void };
+					vw.onLocaleChanged?.();
+				}
+				return;
+			}
+			case "shell":
+				this.plugin.settings.shell = String(value).trim();
+				await this.plugin.saveSettings();
+				return;
+			case "initCommand":
+				this.plugin.settings.initCommand = String(value).trim();
+				await this.plugin.saveSettings();
+				return;
+			default:
+				await super.setControlValue(key, value);
+		}
 	}
 }

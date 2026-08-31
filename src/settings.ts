@@ -1,8 +1,8 @@
 import {
 	App,
 	PluginSettingTab,
+	Setting,
 	getLanguage,
-	type SettingDefinitionItem,
 } from "obsidian";
 import type FolderTerminalPlugin from "./main";
 import type { TerminalTab } from "./terminalView";
@@ -64,129 +64,134 @@ export const DEFAULT_SETTINGS: FolderTerminalSettings = {
 };
 
 /**
- * 设置面板（Obsidian 1.13+ declarative settings API）。
+ * 设置面板。
  *
- * - 正常路径不再重写 `display()` —— 框架读取 `getSettingDefinitions()` 自动渲染。
- * - 持久化走 `PluginSettingTab` 默认 `setControlValue` 钩子（写 `this.plugin.settings`
- *   并 `await this.plugin.saveData()`）。
- * - 仅对「需要后置副作用」的键（language / shell / initCommand）重写
- *   `setControlValue`：
- *   · language: 切语言时 setLocale + display() 重建整 tab（1.13.0 update() 不充分，
- *     已在源码注释中说明） + 通知已打开的 leaf
- *   · shell / initCommand: 入参需 trim（避免首尾空格）
- *   · 其它键一律委托默认实现
+ * 设计决策：用 **imperative display()** 路径（每项用 `new Setting()` 显式构建，
+ * 控件当前值显式 `.setValue(this.plugin.settings.X)`）。
+ *
+ * 为什么不走 Obsidian 1.13+ 的声明式 `getSettingDefinitions()`：
+ * 1. 切语言场景下需要销毁整 tab 并用新 locale 重新求值每个 setting 的 name/desc；
+ *    `update()` 不会重建已缓存的 setting 实例 label。
+ * 2. `display()` 重建时，声明式 API 内部**不会**把 `plugin.settings` 的最新值
+ *    重新绑回每个控件——dropdown 的当前值停留在旧 state，导致"切到中文后控件
+ *    还显示 English"这种状态错位。
+ * 退回 imperative 路径后，每个控件当前值都是显式 `.setValue(settings.X)`，
+ * 切语言只需调 `this.display()` 即可同时刷新 5 个 setting 的 label + 控件当前值。
+ *
+ * bot 报告相关：
+ * - "display is deprecated"：🔵 Recommendation 级别，不阻断 Publish。
+ * - "does not implement getSettingDefinitions"：🟠 Warning 级别，不阻断 Publish。
+ * - 失去的能力：Obsidian 设置搜索（在设置面板顶部搜索「界面语言」「Default shell」等）
+ *   不会再匹配到本插件的设置项。如未来官方 API 修复上述两个问题，可再迁回声明式。
  */
 export class FolderTerminalSettingTab extends PluginSettingTab {
 	constructor(app: App, private plugin: FolderTerminalPlugin) {
 		super(app, plugin);
 	}
 
-	override getSettingDefinitions(): SettingDefinitionItem[] {
-		return [
-			{
-				name: t("settings.language.name"),
-				desc: t("settings.language.desc"),
-				control: {
-					type: "dropdown",
-					key: "language",
-					options: {
-						system: t("settings.language.system"),
-						"zh-CN": t("settings.language.zh"),
-						en: t("settings.language.en"),
-					},
-				},
-			},
-			{
-				name: t("settings.shell.name"),
-				desc: t("settings.shell.desc"),
-				control: {
-					type: "text",
-					key: "shell",
-					placeholder: "/bin/zsh",
-				},
-			},
-			{
-				name: t("settings.fontSize.name"),
-				desc: t("settings.fontSize.desc", { size: this.plugin.settings.fontSize }),
-				control: {
-					type: "slider",
-					key: "fontSize",
-					min: 10,
-					max: 22,
-					step: 1,
-				},
-			},
-			{
-				name: t("settings.colorScheme.name"),
-				desc: t("settings.colorScheme.desc"),
-				control: {
-					type: "dropdown",
-					key: "colorScheme",
-					options: {
-						system: t("settings.colorScheme.system"),
-						dark: t("settings.colorScheme.dark"),
-						light: t("settings.colorScheme.light"),
-					},
-				},
-			},
-			{
-				name: t("settings.reuseLeaf.name"),
-				desc: t("settings.reuseLeaf.desc"),
-				control: {
-					type: "toggle",
-					key: "reuseLeaf",
-				},
-			},
-			{
-				name: t("settings.initCommand.name"),
-				desc: t("settings.initCommand.desc"),
-				control: {
-					type: "text",
-					key: "initCommand",
-					placeholder: t("settings.initCommand.placeholder"),
-				},
-			},
-		];
-	}
+	override display(): void {
+		const { containerEl } = this;
+		containerEl.empty();
 
-	/**
-	 * 后置副作用钩子：
-	 * - language: 改完要 setLocale + display() 重建整 tab（让所有 setting 的 name/desc
-	 *   用新 locale 重新求值；1.13.0 的 update() 只刷控件不重渲已缓存的 label，因此
-	 *   在切语言场景下必须退回 display() 才能让全部 5 项标签/副标题同步刷新）。
-	 *   display() 在 1.13.0 是 deprecated，但仅用于这一处兜底，正常路径仍走
-	 *   声明式 API（bot 仅 Recommendation 级别，不阻断 Publish）。
-	 *   之后通知已打开的 leaf 触发 onLocaleChanged 重渲终端内部文案。
-	 * - shell / initCommand: 入参需 trim（避免首尾空格）
-	 * - 其余键直接走默认实现
-	 */
-	override async setControlValue(key: string, value: unknown): Promise<void> {
-		switch (key) {
-			case "language": {
-				const v = value as LanguageSetting;
-				this.plugin.settings.language = v;
-				await this.plugin.saveSettings();
-				setLocale(resolveLocale(v, getLanguage()));
-				// display() 触发整 tab 销毁重建：5 个 setting 的 name/desc 重新走 t() 取词
-				this.display();
-				for (const leaf of this.plugin.app.workspace.getLeavesOfType(
-					"folder-terminal-view",
-				)) {
-					const vw = leaf.view as unknown as { onLocaleChanged?: () => void };
-					vw.onLocaleChanged?.();
-				}
-				return;
-			}
-			case "shell":
-				this.plugin.settings.shell = String(value).trim();
-				await this.plugin.saveSettings();
-				return;
-			case "initCommand":
-				this.plugin.settings.initCommand = String(value).trim();
-				await this.plugin.saveSettings();
-				return;
-			default:
-				await super.setControlValue(key, value);
-		}
+		// ---------- 界面语言 ----------
+		new Setting(containerEl)
+			.setName(t("settings.language.name"))
+			.setDesc(t("settings.language.desc"))
+			.addDropdown((dd) =>
+				dd
+					.addOption("system", t("settings.language.system"))
+					.addOption("zh-CN", t("settings.language.zh"))
+					.addOption("en", t("settings.language.en"))
+					.setValue(this.plugin.settings.language)
+					.onChange(async (v) => {
+						const next = v as LanguageSetting;
+						this.plugin.settings.language = next;
+						await this.plugin.saveSettings();
+						setLocale(resolveLocale(next, getLanguage()));
+						// 切语言后整 tab 用新 locale + 最新 settings 重建：
+						// 所有 5 个 setting 的 name/desc + 控件当前值都会被重渲
+						this.display();
+						for (const leaf of this.plugin.app.workspace.getLeavesOfType(
+							"folder-terminal-view",
+						)) {
+							const vw = leaf.view as unknown as { onLocaleChanged?: () => void };
+							vw.onLocaleChanged?.();
+						}
+					}),
+			);
+
+		// ---------- 默认 Shell ----------
+		new Setting(containerEl)
+			.setName(t("settings.shell.name"))
+			.setDesc(t("settings.shell.desc"))
+			.addText((text) =>
+				text
+					.setPlaceholder("/bin/zsh")
+					.setValue(this.plugin.settings.shell)
+					.onChange(async (v) => {
+						this.plugin.settings.shell = v.trim();
+						await this.plugin.saveSettings();
+					}),
+			);
+
+		// ---------- 字号 ----------
+		new Setting(containerEl)
+			.setName(t("settings.fontSize.name"))
+			.setDesc(t("settings.fontSize.desc", { size: this.plugin.settings.fontSize }))
+			.addSlider((slider) =>
+				slider
+					.setLimits(10, 22, 1)
+					.setValue(this.plugin.settings.fontSize)
+					.setDynamicTooltip()
+					.onChange(async (v) => {
+						this.plugin.settings.fontSize = v;
+						await this.plugin.saveSettings();
+						// 让副标题里的 "current Xpx" 立即更新
+						this.display();
+					}),
+			);
+
+		// ---------- 配色方案 ----------
+		new Setting(containerEl)
+			.setName(t("settings.colorScheme.name"))
+			.setDesc(t("settings.colorScheme.desc"))
+			.addDropdown((dd) =>
+				dd
+					.addOption("system", t("settings.colorScheme.system"))
+					.addOption("dark", t("settings.colorScheme.dark"))
+					.addOption("light", t("settings.colorScheme.light"))
+					.setValue(this.plugin.settings.colorScheme)
+					.onChange(async (v) => {
+						this.plugin.settings.colorScheme = v as FolderTerminalSettings["colorScheme"];
+						await this.plugin.saveSettings();
+					}),
+			);
+
+		// ---------- 复用终端面板 ----------
+		new Setting(containerEl)
+			.setName(t("settings.reuseLeaf.name"))
+			.setDesc(t("settings.reuseLeaf.desc"))
+			.addToggle((tg) =>
+				tg
+					.setValue(this.plugin.settings.reuseLeaf)
+					.onChange(async (v) => {
+						this.plugin.settings.reuseLeaf = v;
+						await this.plugin.saveSettings();
+					}),
+			);
+
+		// ---------- 默认启动命令 ----------
+		new Setting(containerEl)
+			.setName(t("settings.initCommand.name"))
+			.setDesc(t("settings.initCommand.desc"))
+			.addText((text) =>
+				text
+					.setPlaceholder(t("settings.initCommand.placeholder"))
+					.setValue(this.plugin.settings.initCommand ?? "")
+					.onChange(async (v) => {
+						this.plugin.settings.initCommand = v.trim();
+						await this.plugin.saveSettings();
+					}),
+			);
 	}
 }

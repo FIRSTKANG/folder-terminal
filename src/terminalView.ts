@@ -73,40 +73,54 @@ const DARK_THEME = {
 };
 
 /**
- * Windows 管道模式无真实 PTY，cmd.exe 不会回显正在输入的字符。
- * 此类在终端前端维护一行本地回显，让用户能看到自己的输入；
- * 回车/方向键/Tab 等控制序列直接透传，不做显示。
+ * Windows 管道模式无真实 PTY，cmd.exe 不会回显正在输入的字符，
+ * 且对单个退格字节的处理不可靠（会出现"屏幕删了但缓冲区没删"）。
+ * 此类在终端前端维护一整行输入缓冲区：
+ * - 可打印字符先进入缓冲区并本地显示，**不立即发给 shell**；
+ * - Backspace 只修改前端缓冲区并擦除屏幕字符；
+ * - Enter 时把当前缓冲区整行一次性发给 shell，然后清空缓冲区；
+ * - 方向键等转义序列直接透传给 shell（虽然管道模式下大多无效）。
  */
 class LocalEcho {
+	/** 当前正在编辑的输入行 */
 	private buffer = "";
-	private inEscape = false;
+	/** 未完整的 ESC 序列缓冲 */
+	private escapeBuffer = "";
 
 	constructor(private readonly writer: (data: string) => void) {}
 
-	feed(data: string): void {
+	/**
+	 * 处理 xterm.onData 传来的按键数据。
+	 * @returns 要发送给 shell 的数据；null 表示已全部本地处理，无需发送。
+	 */
+	feed(data: string): string | null {
+		let toShell = "";
+
 		for (const ch of data) {
 			const code = ch.codePointAt(0) ?? 0;
 
-			// 处于转义序列中（方向键等），不回显，直到遇到序列终止字符
-			if (this.inEscape) {
+			// 正在收集 ESC 序列（方向键等）
+			if (this.escapeBuffer.length > 0) {
+				this.escapeBuffer += ch;
 				if (
 					(code >= 0x40 && code <= 0x5f) || // @A-Z[\]^_ 终止 CSI/SS3
 					code === 0x7e || // ~ 终止某些序列
 					code === 0x07 // BEL
 				) {
-					this.inEscape = false;
+					toShell += this.escapeBuffer;
+					this.escapeBuffer = "";
 				}
 				continue;
 			}
 
 			if (code === 0x1b) {
 				// ESC
-				this.inEscape = true;
+				this.escapeBuffer = ch;
 				continue;
 			}
 
 			if (code === 0x7f || code === 0x08) {
-				// Backspace / DEL：本地 buffer 出栈并擦除屏幕上的字符
+				// Backspace / DEL：只改前端缓冲区并擦除屏幕字符，**不透传给 shell**
 				if (this.buffer.length > 0) {
 					this.buffer = this.buffer.slice(0, -1);
 					this.writer("\b \b");
@@ -115,13 +129,17 @@ class LocalEcho {
 			}
 
 			if (code === 0x0d || code === 0x0a) {
-				// 回车：清空本地 buffer，由 shell 自行回显命令行
+				// Enter：把当前整行一次性发给 shell
+				const line = this.buffer;
 				this.buffer = "";
+				toShell += line + "\r\n";
 				continue;
 			}
 
 			if (code === 0x09) {
-				// Tab：shell 补全后会回显，不做本地回显
+				// Tab：加入缓冲区并显示光标移动
+				this.buffer += "\t";
+				this.writer("\t");
 				continue;
 			}
 
@@ -132,13 +150,16 @@ class LocalEcho {
 				continue;
 			}
 
-			// 其余控制字符忽略
+			// 其他控制字符（Ctrl+C 等）直接透传
+			toShell += ch;
 		}
+
+		return toShell.length > 0 ? toShell : null;
 	}
 
 	reset(): void {
 		this.buffer = "";
-		this.inEscape = false;
+		this.escapeBuffer = "";
 	}
 }
 
@@ -647,10 +668,13 @@ export class FolderTerminalView extends ItemView {
 			terminal.loadAddon(fitAddon);
 			terminal.loadAddon(new WebLinksAddon());
 			terminal.open(host);
-			terminal.onData((data) => {
-				this.localEchos.get(tab.id)?.feed(data);
-				this.sessions.get(tab.id)?.write(data);
-			});
+		terminal.onData((data) => {
+			const echo = this.localEchos.get(tab.id);
+			const toShell = echo ? echo.feed(data) : data;
+			if (toShell != null) {
+				this.sessions.get(tab.id)?.write(toShell);
+			}
+		});
 			this.terminals.set(tab.id, terminal);
 			this.fitAddons.set(tab.id, fitAddon);
 

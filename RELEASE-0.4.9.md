@@ -39,6 +39,23 @@ cmd.exe 不会把用户按下的每个字符即时回显到屏幕上，所以打
 **修复**：新增 `LocalEcho` 辅助类。Windows 管道模式下，前端把可打印字符（含中文）
 即时写回 xterm，Backspace/DEL 会擦除前一个字符，控制序列/方向键/Tab/回车则透传给 shell。
 
+#### 1d. Backspace 删了显示但没删实际输入
+
+在 1c 的基础上，Backspace 虽然擦除了屏幕上的字符，但原来的实现仍把 DEL (`\x7F`) 发给 cmd.exe；
+cmd.exe 在管道模式下**不识别单个退格字节**做行内删除，于是出现：
+
+```
+屏幕显示：psi
+实际执行：psir
+```
+
+**修复**：`LocalEcho` 改为维护**一整行输入缓冲区**：
+- 可打印字符先进入缓冲区并本地显示，**不立即发给 shell**；
+- Backspace 只修改前端缓冲区和屏幕显示；
+- Enter 时把当前缓冲区的整行一次性发给 cmd.exe，然后清空缓冲区。
+
+这样 Backspace 永远不会以单个字节形式到达 cmd.exe，删除结果完全一致。
+
 **副作用**：回车之后 cmd.exe 会自己再打印一次 `提示符>命令`，
 因此命令行会出现两次（一次本地回显、一次 shell 回显）。这是 pipe 模式没有真实 PTY 的必然结果；
 若追求完美体验，需要引入 `node-pty` 走 ConPTY。
@@ -80,7 +97,8 @@ C:\...\wiki\work>echo 中文测试
 - `src/pty.ts`：Windows 下把 xterm 发送的 Backspace `\x7F` (DEL) 转成 `\x08` (BS) 再写入 stdin，避免 cmd.exe 把 DEL 原样 echo 回 stdout 导致 xterm.js 报 `Parsing error: code: 127`。
 - `src/pty.ts`：Windows 下对解码后的 stdout/stderr 过滤 `\x7F` 字节，作为防御性兜底。
 - `src/pty.ts`：`ShellSession` 新增 `needsLocalEcho` 标志，Windows 分支设为 `true`。
-- `src/terminalView.ts`：新增 `LocalEcho` 类，为无 PTY 会话即时回显用户输入到 xterm。
+- `src/terminalView.ts`：新增 `LocalEcho` 类，为无 PTY 会话即时回显用户输入到 xterm；后续改为整行缓冲，Backspace 只改前端缓冲区，Enter 才把整行发给 shell。
+- `src/terminalView.ts`：`terminal.onData` 根据 `LocalEcho.feed()` 返回值决定是否转发给 `session.write`（`null` = 已本地消费）。
 - `src/i18n.ts`：移除已失效的 `pty.fallbackWinpty` 文案（中/英）。
 
 ## 📦 安装 / 更新

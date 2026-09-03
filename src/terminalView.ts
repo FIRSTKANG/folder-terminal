@@ -77,13 +77,15 @@ const DARK_THEME = {
  * 且对单个退格字节的处理不可靠（会出现"屏幕删了但缓冲区没删"）。
  * 此类在终端前端维护一整行输入缓冲区：
  * - 可打印字符先进入缓冲区并本地显示，**不立即发给 shell**；
- * - Backspace 只修改前端缓冲区并擦除屏幕字符；
+ * - Backspace / Delete / Ctrl+U 等只修改前端缓冲区并擦除屏幕字符；
  * - Enter 时把当前缓冲区整行一次性发给 shell，然后清空缓冲区；
  * - 方向键等转义序列直接透传给 shell（虽然管道模式下大多无效）。
  */
 class LocalEcho {
 	/** 当前正在编辑的输入行 */
 	private buffer = "";
+	/** 光标在 buffer 中的位置（0..buffer.length） */
+	private cursor = 0;
 	/** 未完整的 ESC 序列缓冲 */
 	private escapeBuffer = "";
 
@@ -99,7 +101,7 @@ class LocalEcho {
 		for (const ch of data) {
 			const code = ch.codePointAt(0) ?? 0;
 
-			// 正在收集 ESC 序列（方向键等）
+			// 正在收集 ESC 序列（方向键、Delete 等）
 			if (this.escapeBuffer.length > 0) {
 				this.escapeBuffer += ch;
 				if (
@@ -107,8 +109,18 @@ class LocalEcho {
 					code === 0x7e || // ~ 终止某些序列
 					code === 0x07 // BEL
 				) {
-					toShell += this.escapeBuffer;
+					const seq = this.escapeBuffer;
 					this.escapeBuffer = "";
+					// Delete 键（ESC[3~）：按现代终端语义删除光标处字符
+					if (seq === "\x1b[3~") {
+						if (this.cursor < this.buffer.length) {
+							this.buffer = this.buffer.slice(0, this.cursor) + this.buffer.slice(this.cursor + 1);
+							this.redrawFromCursor();
+						}
+						continue;
+					}
+					// 其他 ESC 序列直接透传
+					toShell += seq;
 				}
 				continue;
 			}
@@ -120,10 +132,14 @@ class LocalEcho {
 			}
 
 			if (code === 0x7f || code === 0x08) {
-				// Backspace / DEL：只改前端缓冲区并擦除屏幕字符，**不透传给 shell**
-				if (this.buffer.length > 0) {
-					this.buffer = this.buffer.slice(0, -1);
-					this.writer("\b \b");
+				// Backspace / DEL：删除光标前一个字符
+				if (this.cursor > 0) {
+					this.buffer = this.buffer.slice(0, this.cursor - 1) + this.buffer.slice(this.cursor);
+					this.cursor--;
+					this.writer("\b");
+					this.writer(this.buffer.slice(this.cursor));
+					this.writer(" ");
+					this.writer(`\x1b[${this.buffer.length - this.cursor + 1}D`);
 				}
 				continue;
 			}
@@ -132,33 +148,74 @@ class LocalEcho {
 				// Enter：把当前整行一次性发给 shell
 				const line = this.buffer;
 				this.buffer = "";
+				this.cursor = 0;
+				console.log("[FT-DIAG] LocalEcho Enter: buffer=%o, sending=%o", line, line + "\r\n");
 				toShell += line + "\r\n";
 				continue;
 			}
 
 			if (code === 0x09) {
 				// Tab：加入缓冲区并显示光标移动
-				this.buffer += "\t";
+				this.buffer = this.buffer.slice(0, this.cursor) + "\t" + this.buffer.slice(this.cursor);
+				this.cursor++;
 				this.writer("\t");
 				continue;
 			}
 
-			if (code >= 0x20) {
-				// 可打印字符（含中文等 Unicode）
-				this.buffer += ch;
-				this.writer(ch);
+			if (code === 0x15) {
+				// Ctrl+U：清空当前行（解决鼠标/全选删除后前端与 buffer 不同步）
+				this.clearLine();
 				continue;
 			}
 
-			// 其他控制字符（Ctrl+C 等）直接透传
+			if (code === 0x03) {
+				// Ctrl+C：先清空本地行，再把中断信号透传给 shell
+				this.clearLine();
+				toShell += "\x03";
+				continue;
+			}
+
+			if (code >= 0x20) {
+				// 可打印字符（含中文等 Unicode）插入到光标处
+				this.buffer = this.buffer.slice(0, this.cursor) + ch + this.buffer.slice(this.cursor);
+				this.cursor++;
+				this.writer(ch);
+				if (this.cursor < this.buffer.length) {
+					this.writer(this.buffer.slice(this.cursor));
+					this.writer(`\x1b[${this.buffer.length - this.cursor}D`);
+				}
+				continue;
+			}
+
+			// 其他控制字符直接透传
 			toShell += ch;
 		}
 
+		if (toShell.length > 0) {
+			console.log("[FT-DIAG] LocalEcho toShell: %o", toShell);
+		}
 		return toShell.length > 0 ? toShell : null;
+	}
+
+	private clearLine(): void {
+		const len = this.buffer.length;
+		this.buffer = "";
+		this.cursor = 0;
+		if (len > 0) {
+			this.writer(`\x1b[${len}D`); // 光标移到行首
+			this.writer("\x1b[K"); // 从光标清到行尾
+		}
+	}
+
+	private redrawFromCursor(): void {
+		this.writer(this.buffer.slice(this.cursor));
+		this.writer(" ");
+		this.writer(`\x1b[${this.buffer.length - this.cursor + 1}D`);
 	}
 
 	reset(): void {
 		this.buffer = "";
+		this.cursor = 0;
 		this.escapeBuffer = "";
 	}
 }

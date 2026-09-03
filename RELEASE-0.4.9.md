@@ -2,7 +2,9 @@
 
 ## 🐛 Bug Fixes
 
-### 1. Windows 上终端无法输入
+### 1. Windows 上终端无法输入（两个叠加原因）
+
+#### 1a. winpty 挂在死进程上
 
 原先 Windows 分支优先用 `winpty` 启动 shell。但 winpty 要求 **stdin 是真正的 tty**，
 而 Node/Electron 的 `child_process` 只能提供管道，实测 winpty 会打印：
@@ -12,10 +14,38 @@ stdin is not a tty
 ```
 
 随后直接 `exit 1`。这属于「启动成功但立刻失败」，**不会触发 `ENOENT` 回退逻辑**，
-于是终端挂在一个死进程上，表现为**无法输入**（且不会提示任何回退信息）。
+于是终端挂在一个死进程上（且不会提示任何回退信息）。
 
 **修复**：Windows 改为直连 shell（默认 `cmd.exe`，支持自定义 shell），输入输出经管道转发。
-实测输入、命令执行均正常。依赖终端能力的程序（vim / 进度条）仍受限，
+
+#### 1b. 回车键不触发命令执行（真正的根因）
+
+xterm 在真实终端里按回车只发送 `\r`（CR），由 PTY 的 line discipline 做 ICRNL 转换变成 `\n`。
+但 **Windows 管道模式下没有这一层**，cmd.exe 以 `\n` 作为行结束符，
+于是收到单独的 `\r` 只是回显字符、并**不执行命令**——表现为「能打字，但回车没反应」。
+
+实测（只发 `\r`）：命令被缓冲住，直到下一条 `\r\n` 到来才一起执行，
+输出被拼成一行：
+
+```
+C:\...\work>echo TEST_CR_ONLYecho TEST_CRLF
+TEST_CR_ONLYecho TEST_CRLF
+```
+
+**修复**：Windows 管道模式下，写入 stdin 前把单独的 `\r` 补全为 `\r\n`
+（`data.replace(/\r(?!\n)/g, "\r\n")`；已经是 `\r\n` 的保持不变，避免产生空行重复执行）。
+Unix 走真实 PTY，不做此转换。
+
+修复后三条命令各自独立执行：
+
+```
+C:\...\work>echo CMD_A
+CMD_A
+C:\...\work>echo CMD_B
+CMD_B
+```
+
+**遗留**：依赖终端能力的程序（vim / 进度条）仍受限，
 需要 ConPTY / node-pty 原生模块才能真正支持，暂不引入。
 
 ### 2. Windows 上中文输出乱码
@@ -51,6 +81,7 @@ C:\...\wiki\work>echo 中文测试
 - `src/pty.ts`：移除 `findWinpty()` / `WINPTY_CANDIDATES` / `spawnCmd()` 回退链
   （winpty 在管道 stdin 下必然失败，保留反而误导）。
 - `src/pty.ts`：新增 `createWindowsDecoder()`，Windows 下替代原来的 `chunk.toString("utf8")`。
+- `src/pty.ts`：`ShellSession.write()` 在 Windows 下把单独的 `\r` 补全为 `\r\n`，让回车真正提交命令。
 - `src/i18n.ts`：移除已失效的 `pty.fallbackWinpty` 文案（中/英）。
 
 ## 📦 安装 / 更新

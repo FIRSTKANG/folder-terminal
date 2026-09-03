@@ -160,7 +160,13 @@ export function spawnShell(
 	return {
 		write(data: string): void {
 			try {
-				if (proc.stdin?.writable) proc.stdin.write(data);
+				if (proc.stdin?.writable) {
+					// Windows 管道模式下 cmd.exe 以 "\n" 作为行结束，而 xterm 的回车键只发送 "\r"
+					// （真实 PTY 里由 line discipline 做 ICRNL 转换，管道模式没有这一层）。
+					// 不补 "\n" 的话命令会被缓冲住不执行，表现为「打字有回显但回车没反应」。
+					// 只补单独的 "\r"，已经是 "\r\n" 的保持不变，避免变成空行重复执行。
+					proc.stdin.write(isWindows ? data.replace(/\r(?!\n)/g, "\r\n") : data);
+				}
 			} catch {
 				// 会话已关闭，忽略
 			}

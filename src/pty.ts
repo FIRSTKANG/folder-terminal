@@ -125,9 +125,16 @@ export function spawnShell(
 	const decodeOut = isWindows ? createWindowsDecoder() : (c: Buffer) => c.toString("utf8");
 	const decodeErr = isWindows ? createWindowsDecoder() : (c: Buffer) => c.toString("utf8");
 
+	const filterOut = (raw: string): string => {
+		// 0x7F (DEL) 对显示无意义，但 Windows 管道模式下会被某些 shell/程序 echo 到
+		// stdout，导致 xterm.js 报 "Parsing error: code: 127"。直接剔除。
+		if (!isWindows) return raw;
+		return raw.replace(/\x7F/g, "");
+	};
+
 	const bind = (p: ChildProcess): void => {
-		p.stdout?.on("data", (chunk: Buffer) => onData(decodeOut(chunk)));
-		p.stderr?.on("data", (chunk: Buffer) => onData(decodeErr(chunk)));
+		p.stdout?.on("data", (chunk: Buffer) => onData(filterOut(decodeOut(chunk))));
+		p.stderr?.on("data", (chunk: Buffer) => onData(filterOut(decodeErr(chunk))));
 		p.on("exit", (code) => onExit(code));
 	};
 
@@ -170,7 +177,12 @@ export function spawnShell(
 					// （真实 PTY 里由 line discipline 做 ICRNL 转换，管道模式没有这一层）。
 					// 不补 "\n" 的话命令会被缓冲住不执行，表现为「打字有回显但回车没反应」。
 					// 只补单独的 "\r"，已经是 "\r\n" 的保持不变，避免变成空行重复执行。
-					proc.stdin.write(isWindows ? data.replace(/\r(?!\n)/g, "\r\n") : data);
+					let sanitized = isWindows ? data.replace(/\r(?!\n)/g, "\r\n") : data;
+					// Windows 管道模式下 xterm 发送的 Backspace 是 DEL (\x7F)，cmd.exe 在管道里
+					// 经常把它原样 echo 回 stdout，导致 xterm.js 报 "Parsing error: code: 127"。
+					// 转成 BS (\x08) 再发，既能删除 cmd 缓冲区字符，又不会让 stdout 出现 0x7F。
+					if (isWindows) sanitized = sanitized.replace(/\x7F/g, "\x08");
+					proc.stdin.write(sanitized);
 				}
 			} catch {
 				// 会话已关闭，忽略

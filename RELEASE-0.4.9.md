@@ -77,6 +77,8 @@ C:\...\wiki\work>echo 中文测试
   （winpty 在管道 stdin 下必然失败，保留反而误导）。
 - `src/pty.ts`：新增 `createWindowsDecoder()`，Windows 下替代原来的 `chunk.toString("utf8")`。
 - `src/pty.ts`：`ShellSession.write()` 在 Windows 下把单独的 `\r` 补全为 `\r\n`，让回车真正提交命令。
+- `src/pty.ts`：Windows 下把 xterm 发送的 Backspace `\x7F` (DEL) 转成 `\x08` (BS) 再写入 stdin，避免 cmd.exe 把 DEL 原样 echo 回 stdout 导致 xterm.js 报 `Parsing error: code: 127`。
+- `src/pty.ts`：Windows 下对解码后的 stdout/stderr 过滤 `\x7F` 字节，作为防御性兜底。
 - `src/pty.ts`：`ShellSession` 新增 `needsLocalEcho` 标志，Windows 分支设为 `true`。
 - `src/terminalView.ts`：新增 `LocalEcho` 类，为无 PTY 会话即时回显用户输入到 xterm。
 - `src/i18n.ts`：移除已失效的 `pty.fallbackWinpty` 文案（中/英）。

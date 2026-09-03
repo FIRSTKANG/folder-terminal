@@ -2,7 +2,7 @@
 
 ## 🐛 Bug Fixes
 
-### 1. Windows 上终端"无法输入"（三个叠加原因）
+### 1. Windows 上终端"无法输入" / 输入残留（四个叠加原因）
 
 #### 1a. winpty 挂在死进程上
 
@@ -60,6 +60,19 @@ cmd.exe 在管道模式下**不识别单个退格字节**做行内删除，于�
 因此命令行会出现两次（一次本地回显、一次 shell 回显）。这是 pipe 模式没有真实 PTY 的必然结果；
 若追求完美体验，需要引入 `node-pty` 走 ConPTY。
 
+#### 1e. 删除后再次输入出现残留/重复字符
+
+在 1d 的整行缓冲基础上，某些删除方式（如键盘 Delete 键、终端里的"全选后输入"覆盖、
+鼠标选中删除）产生的按键序列不会被旧实现消费，导致前端 buffer 与屏幕实际内容不一致，
+例如先输入 `dir` 再删除后输入 `ps`，回车却发送成 `psps`。
+
+**修复**：`LocalEcho` 增强为带光标的行编辑器：
+- 维护 `cursor` 位置，Backspace 删除光标前一个字符，Delete 键（`ESC[3~`）删除光标处字符；
+- 新增 `Ctrl+U` 一键清空当前行；
+- `Ctrl+C` 先清空本地行，再把中断信号透传给 shell；
+- 可打印字符插入到光标位置（支持在行中插入）；
+- 增加 `[FT-DIAG]` 日志输出到 DevTools Console，便于确认实际发送内容。
+
 ### 2. Windows 上中文输出乱码
 
 cmd.exe 的输出是**混合编码**：
@@ -97,7 +110,8 @@ C:\...\wiki\work>echo 中文测试
 - `src/pty.ts`：Windows 下把 xterm 发送的 Backspace `\x7F` (DEL) 转成 `\x08` (BS) 再写入 stdin，避免 cmd.exe 把 DEL 原样 echo 回 stdout 导致 xterm.js 报 `Parsing error: code: 127`。
 - `src/pty.ts`：Windows 下对解码后的 stdout/stderr 过滤 `\x7F` 字节，作为防御性兜底。
 - `src/pty.ts`：`ShellSession` 新增 `needsLocalEcho` 标志，Windows 分支设为 `true`。
-- `src/terminalView.ts`：新增 `LocalEcho` 类，为无 PTY 会话即时回显用户输入到 xterm；后续改为整行缓冲，Backspace 只改前端缓冲区，Enter 才把整行发给 shell。
+- `src/pty.ts`：`ShellSession.write()` 增加 `[FT-DIAG]` 日志，记录原始输入、转换后内容及其 hex，便于排查 Windows 管道模式下 stdin 字节流。
+- `src/terminalView.ts`：新增 `LocalEcho` 类，为无 PTY 会话即时回显用户输入到 xterm；后续改为带光标的整行缓冲，支持 Backspace、Delete、`Ctrl+U` 清行、行中插入，Enter 才把整行发给 shell。
 - `src/terminalView.ts`：`terminal.onData` 根据 `LocalEcho.feed()` 返回值决定是否转发给 `session.write`（`null` = 已本地消费）。
 - `src/i18n.ts`：移除已失效的 `pty.fallbackWinpty` 文案（中/英）。
 

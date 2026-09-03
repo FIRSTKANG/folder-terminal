@@ -2,7 +2,7 @@
 
 ## 🐛 Bug Fixes
 
-### 1. Windows 上终端无法输入（两个叠加原因）
+### 1. Windows 上终端"无法输入"（三个叠加原因）
 
 #### 1a. winpty 挂在死进程上
 
@@ -18,35 +18,30 @@ stdin is not a tty
 
 **修复**：Windows 改为直连 shell（默认 `cmd.exe`，支持自定义 shell），输入输出经管道转发。
 
-#### 1b. 回车键不触发命令执行（真正的根因）
+#### 1b. 回车键不触发命令执行
 
 xterm 在真实终端里按回车只发送 `\r`（CR），由 PTY 的 line discipline 做 ICRNL 转换变成 `\n`。
 但 **Windows 管道模式下没有这一层**，cmd.exe 以 `\n` 作为行结束符，
-于是收到单独的 `\r` 只是回显字符、并**不执行命令**——表现为「能打字，但回车没反应」。
+于是收到单独的 `\r` 只是回显字符、并**不执行命令**。
 
-实测（只发 `\r`）：命令被缓冲住，直到下一条 `\r\n` 到来才一起执行，
-输出被拼成一行：
-
-```
-C:\...\work>echo TEST_CR_ONLYecho TEST_CRLF
-TEST_CR_ONLYecho TEST_CRLF
-```
+实测（只发 `\r`）：命令被缓冲住，直到下一条 `\r\n` 到来才一起执行。
 
 **修复**：Windows 管道模式下，写入 stdin 前把单独的 `\r` 补全为 `\r\n`
-（`data.replace(/\r(?!\n)/g, "\r\n")`；已经是 `\r\n` 的保持不变，避免产生空行重复执行）。
+（`data.replace(/\r(?!\n)/g, "\r\n")`；已经是 `\r\n` 的保持不变）。
 Unix 走真实 PTY，不做此转换。
 
-修复后三条命令各自独立执行：
+#### 1c. 打字时屏幕不显示字符（本地无 PTY 回显）
 
-```
-C:\...\work>echo CMD_A
-CMD_A
-C:\...\work>echo CMD_B
-CMD_B
-```
+这是用户觉得"无法输入"的直接原因。`xterm.onData -> session.write -> cmd.exe stdin`
+整条链路其实是通的，按回车也能执行命令；但 Windows 管道模式**没有 PTY line discipline**，
+cmd.exe 不会把用户按下的每个字符即时回显到屏幕上，所以打字时一片黑。
 
-**遗留**：依赖终端能力的程序（vim / 进度条）仍受限，
-需要 ConPTY / node-pty 原生模块才能真正支持，暂不引入。
+**修复**：新增 `LocalEcho` 辅助类。Windows 管道模式下，前端把可打印字符（含中文）
+即时写回 xterm，Backspace/DEL 会擦除前一个字符，控制序列/方向键/Tab/回车则透传给 shell。
+
+**副作用**：回车之后 cmd.exe 会自己再打印一次 `提示符>命令`，
+因此命令行会出现两次（一次本地回显、一次 shell 回显）。这是 pipe 模式没有真实 PTY 的必然结果；
+若追求完美体验，需要引入 `node-pty` 走 ConPTY。
 
 ### 2. Windows 上中文输出乱码
 
@@ -82,6 +77,8 @@ C:\...\wiki\work>echo 中文测试
   （winpty 在管道 stdin 下必然失败，保留反而误导）。
 - `src/pty.ts`：新增 `createWindowsDecoder()`，Windows 下替代原来的 `chunk.toString("utf8")`。
 - `src/pty.ts`：`ShellSession.write()` 在 Windows 下把单独的 `\r` 补全为 `\r\n`，让回车真正提交命令。
+- `src/pty.ts`：`ShellSession` 新增 `needsLocalEcho` 标志，Windows 分支设为 `true`。
+- `src/terminalView.ts`：新增 `LocalEcho` 类，为无 PTY 会话即时回显用户输入到 xterm。
 - `src/i18n.ts`：移除已失效的 `pty.fallbackWinpty` 文案（中/英）。
 
 ## 📦 安装 / 更新

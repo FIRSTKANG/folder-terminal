@@ -111,7 +111,6 @@ const zhCN: Dict = {
 	// ---------- pty 回退提示（终端内可见） ----------
 	"pty.spawnFailed": "启动失败: ",
 	"pty.cwdMissing": "工作目录不存在: ",
-	"pty.fallbackWinpty": "未找到 winpty，已回退 cmd.exe（无 PTY，交互程序受限）",
 	"pty.fallbackScript": "未找到 python3，已回退到 script 模式（尺寸同步降级）",
 	"pty.installXcode": "未找到 python3：请安装 Xcode Command Line Tools（xcode-select --install）后重试",
 };
@@ -206,7 +205,6 @@ const en: Dict = {
 	// ---------- pty fallback hints (visible in terminal) ----------
 	"pty.spawnFailed": "Failed to start: ",
 	"pty.cwdMissing": "Working directory does not exist: ",
-	"pty.fallbackWinpty": "winpty not found, fell back to cmd.exe (no PTY, interactive programs limited)",
 	"pty.fallbackScript": "python3 not found, fell back to script mode (size sync degraded)",
 	"pty.installXcode": "python3 not found: install Xcode Command Line Tools (xcode-select --install) and retry",
 };

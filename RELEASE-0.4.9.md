@@ -1,24 +1,67 @@
 # Folder Terminal 0.4.9
 
 ## 🐛 Bug Fixes
-- **Windows 上未找到 winpty 导致回退 cmd.exe（无 PTY）**
-  直接 `spawn("winpty")` 只会在系统 PATH 中查找，而很多用户通过 **Git for Windows / MSYS2 / Scoop / WinGet** 安装的 `winpty.exe` 并不在 PATH 里。
-  0.4.9 新增常见安装路径扫描，先定位到可用 winpty 再启动，显著减少无 PTY 回退。
+
+### 1. Windows 上终端无法输入
+
+原先 Windows 分支优先用 `winpty` 启动 shell。但 winpty 要求 **stdin 是真正的 tty**，
+而 Node/Electron 的 `child_process` 只能提供管道，实测 winpty 会打印：
+
+```
+stdin is not a tty
+```
+
+随后直接 `exit 1`。这属于「启动成功但立刻失败」，**不会触发 `ENOENT` 回退逻辑**，
+于是终端挂在一个死进程上，表现为**无法输入**（且不会提示任何回退信息）。
+
+**修复**：Windows 改为直连 shell（默认 `cmd.exe`，支持自定义 shell），输入输出经管道转发。
+实测输入、命令执行均正常。依赖终端能力的程序（vim / 进度条）仍受限，
+需要 ConPTY / node-pty 原生模块才能真正支持，暂不引入。
+
+### 2. Windows 上中文输出乱码
+
+cmd.exe 的输出是**混合编码**：
+
+- 自身本地化消息（版权行、`活动代码页: 936`）走系统代码页 **GBK**；
+- 用户输入的中文经 stdin 原样回显，是 **UTF-8** 字节。
+
+原先统一按 UTF-8 解码，导致 cmd 自身的中文全部乱码（如 `活动` → `[�汾`）。
+
+**修复**：新增 `createWindowsDecoder()`，按 chunk 嗅探编码——
+先试严格 UTF-8（能识别被切断的多字节序列，留到下一个 chunk 补齐），
+确认不是 UTF-8 再回退 **GBK**。stdout / stderr 各自维护解码状态，避免两条流交错时共用残缺缓冲。
+
+Node 自带 full-icu，`TextDecoder` 原生支持 `gbk`，因此**无需引入 iconv-lite**。
+
+实测结果（直连 `cmd.exe` + 新解码器）：
+
+```
+Microsoft Windows [版本 10.0.26200.9168]
+(c) Microsoft Corporation。保留所有权利。
+C:\...\wiki\work>chcp
+活动代码页: 936
+C:\...\wiki\work>echo 中文测试
+中文测试
+```
+
+版权行、GBK 消息、UTF-8 回显均正常，无 U+FFFD。
 
 ## 🔧 Under the hood
-- `src/pty.ts`：新增 `findWinpty()`，扫描 Git for Windows、MSYS2、Scoop、WinGet 等常见位置。
-- **补充**：若上述固定路径均未命中，`findWinpty()` 会遍历系统 PATH，从其中的 `git.exe` 反推 Git 安装根目录（兼容 `cmd` / `bin` / `mingw64\bin` 子目录），再定位 `<Git根>\usr\bin\winpty.exe`。
-  这覆盖了 **Git 装在非标准路径（如 `D:\SoftwareDev\Tools\Git`）且只把 `cmd` 加进 PATH** 的实际情况——本机正是如此，原逻辑与固定路径扫描都找不到，现已可正确命中 `D:\SoftwareDev\Tools\Git\usr\bin\winpty.exe`。
-- Windows 分支优先使用扫描到的 winpty 完整路径，未扫描到时仍保持向后兼容（尝试 PATH 中的 `winpty`）。
-- 修正 `proc.on("error")` 回调内的缩进。
+
+- `src/pty.ts`：移除 `findWinpty()` / `WINPTY_CANDIDATES` / `spawnCmd()` 回退链
+  （winpty 在管道 stdin 下必然失败，保留反而误导）。
+- `src/pty.ts`：新增 `createWindowsDecoder()`，Windows 下替代原来的 `chunk.toString("utf8")`。
+- `src/i18n.ts`：移除已失效的 `pty.fallbackWinpty` 文案（中/英）。
 
 ## 📦 安装 / 更新
+
 - 社区市场更新，或从 [Releases](https://github.com/FIRSTKANG/folder-terminal/releases/tag/0.4.9) 下载三件套手动覆盖。
 - BRAT 用户：`folder-terminal` 仓库装 `0.4.9` tag。
 
 ---
 
 ## Release assets（三个文件，单文件分别拖拽上传）
+
 - `main.js`
 - `manifest.json`（版本 0.4.9）
 - `styles.css`

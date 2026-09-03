@@ -1,6 +1,5 @@
 import { spawn, type ChildProcess } from "child_process";
 import { existsSync } from "fs";
-import { join, delimiter } from "path";
 import type { Writable } from "stream";
 import proxyCode from "./pty-proxy.py";
 import { t } from "./i18n";
@@ -22,57 +21,47 @@ interface SpawnResult {
 	control: Writable | null;
 }
 
-/** Windows 常见 winpty 安装位置（Git for Windows / MSYS2 / Scoop / WinGet 等） */
-const WINPTY_CANDIDATES: string[] = [
-	"C:\\Program Files\\Git\\usr\\bin\\winpty.exe",
-	"C:\\Program Files (x86)\\Git\\usr\\bin\\winpty.exe",
-	"C:\\msys64\\usr\\bin\\winpty.exe",
-	"C:\\msys32\\usr\\bin\\winpty.exe",
-];
-
 /**
- * 在 Windows 上定位可用的 winpty 可执行文件。
- * 很多用户装了 Git for Windows，但其 usr\\bin 不在系统 PATH 中，
- * 导致直接 spawn("winpty") 报 ENOENT。先扫描常见路径可大幅提升 PTY 可用率。
+ * Windows 下终端输出是「混合编码」：
+ * - cmd.exe 自身的本地化消息（版权行、"活动代码页: 936"）走系统代码页 GBK；
+ * - 用户输入的中文经 stdin 原样回显，是 UTF-8 字节。
+ * 统一按 UTF-8 解前者会乱码，统一按 GBK 解后者会乱码，因此按 chunk 嗅探编码：
+ * 先试严格 UTF-8（能识别被切断的多字节序列），确认不是 UTF-8 再回退 GBK。
+ * Node 自带 full-icu，TextDecoder 原生支持 "gbk"，无需额外依赖。
  */
-function findWinpty(): string | null {
-	if (!isWindows) return null;
+function createWindowsDecoder(): (chunk: Buffer) => string {
+	let pending: Buffer | null = null;
+	const utf8 = new TextDecoder("utf-8", { fatal: true });
+	const gbk = new TextDecoder("gbk");
 
-	for (const p of WINPTY_CANDIDATES) {
-		if (existsSync(p)) return p;
-	}
-
-	// scoop 用户级安装
-	const userProfile = process.env.USERPROFILE;
-	if (userProfile) {
-		const scoopPath = join(userProfile, "scoop", "shims", "winpty.exe");
-		if (existsSync(scoopPath)) return scoopPath;
-	}
-
-	// WinGet 默认链接目录
-	const localAppData = process.env.LOCALAPPDATA;
-	if (localAppData) {
-		const wingetPath = join(localAppData, "Microsoft", "WinGet", "Links", "winpty.exe");
-		if (existsSync(wingetPath)) return wingetPath;
-	}
-
-	// 从 PATH 中的 git.exe 反推 Git 安装根目录，再定位 usr\bin\winpty.exe。
-	// 覆盖 Git 装在非标准路径（如 D:\SoftwareDev\Tools\Git）且只把 cmd 加进 PATH 的情况。
-	const pathEnv = process.env.PATH || "";
-	for (const dir of pathEnv.split(delimiter)) {
-		if (!dir) continue;
-		const direct = join(dir, "winpty.exe");
-		if (existsSync(direct)) return direct;
-		const gitExe = join(dir, "git.exe");
-		if (existsSync(gitExe)) {
-			const gitRoot = dir.replace(/[\\/](cmd|bin|mingw64(?:[\\/]bin)?)$/i, "");
-			const wp = join(gitRoot, "usr", "bin", "winpty.exe");
-			if (existsSync(wp)) return wp;
+	const tryUtf8 = (buf: Buffer): string | null => {
+		try {
+			return utf8.decode(buf);
+		} catch {
+			return null;
 		}
-	}
+	};
 
-	// 留给 PATH 中直接可用的 winpty
-	return null;
+	return (chunk: Buffer): string => {
+		const buf = pending && pending.length ? Buffer.concat([pending, chunk]) : chunk;
+		// 1) 完整 UTF-8
+		const full = tryUtf8(buf);
+		if (full !== null) {
+			pending = null;
+			return full;
+		}
+		// 2) 末尾可能是被切断的多字节序列，留到下一个 chunk 补齐
+		for (let cut = 1; cut <= 3 && cut < buf.length; cut++) {
+			const head = tryUtf8(buf.subarray(0, buf.length - cut));
+			if (head !== null) {
+				pending = buf.subarray(buf.length - cut);
+				return head;
+			}
+		}
+		// 3) 确实不是 UTF-8（cmd.exe 的 GBK 本地化消息）-> 按 GBK 解码
+		pending = null;
+		return gbk.decode(buf);
+	};
 }
 
 function spawnPythonProxy(cwd: string, env: NodeJS.ProcessEnv, shell: string): SpawnResult {
@@ -96,11 +85,15 @@ function spawnScript(cwd: string, env: NodeJS.ProcessEnv, shell: string): SpawnR
  * 平台策略：
  * - macOS / Linux：优先 python3 PTY 代理（pty.fork，真实伪终端，支持 TIOCSWINSZ 尺寸同步）
  * - Linux：python3 缺失时回退到 `script` 命令（仍可交互，尺寸同步降级为 stty）
- * - Windows：优先 winpty（会先扫描 Git for Windows / MSYS2 / Scoop / WinGet 等常见路径，
- *   再在 PATH 中查找；若已安装则提供 PTY），缺失时回退 cmd.exe（无 PTY）
+ * - Windows：直连 shell（默认 cmd.exe），无 PTY。输入输出经管道转发，输入与方向键可用，
+ *   但 vim / 进度条等依赖终端能力的程序受限；输出按 chunk 嗅探 UTF-8 / GBK 解码。
  *
- * 说明：macOS 上不用 `script`，因为 Node/Electron 的 child_process 管道是 socketpair（libuv），
+ * 说明 1：macOS 上不用 `script`，因为 Node/Electron 的 child_process 管道是 socketpair（libuv），
  * BSD script 会对 stdin 做 tcgetattr 而直接失败（已实测复现）。
+ * 说明 2：Windows 上不使用 winpty —— 它要求 stdin 是真正的 tty，而 Node 只能提供管道，
+ * 实测 winpty 会打印 "stdin is not a tty" 后 exit 1。这是「启动成功但立刻失败」，
+ * 不会触发 ENOENT 回退，终端会挂在死进程上导致无法输入，因此改为直连 shell。
+ * 真正的 PTY 需要 ConPTY / node-pty 原生模块，暂不引入。
  */
 export function spawnShell(
 	cwd: string,
@@ -114,22 +107,23 @@ export function spawnShell(
 
 	let proc: ChildProcess;
 	let control: Writable | null = null;
-	let triedWinpty = false;
 
 	if (isWindows) {
-		// 先试 winpty（有 PTY）；ENOENT 时由 error 处理器回退 cmd.exe
-		triedWinpty = true;
-		const winptyPath = findWinpty();
-		proc = spawn(winptyPath ?? "winpty", [shellCmd], { cwd, env });
+		// 直连 shell（cmd.exe 或用户自定义），输入输出走管道
+		proc = spawn(shellCmd, [], { cwd, env });
 	} else {
 		const r = spawnPythonProxy(cwd, env, shellCmd);
 		proc = r.proc;
 		control = r.control;
 	}
 
+	// stdout / stderr 各自维护解码状态，避免两条流交错时共用残缺缓冲
+	const decodeOut = isWindows ? createWindowsDecoder() : (c: Buffer) => c.toString("utf8");
+	const decodeErr = isWindows ? createWindowsDecoder() : (c: Buffer) => c.toString("utf8");
+
 	const bind = (p: ChildProcess): void => {
-		p.stdout?.on("data", (chunk: Buffer) => onData(chunk.toString("utf8")));
-		p.stderr?.on("data", (chunk: Buffer) => onData(chunk.toString("utf8")));
+		p.stdout?.on("data", (chunk: Buffer) => onData(decodeOut(chunk)));
+		p.stderr?.on("data", (chunk: Buffer) => onData(decodeErr(chunk)));
 		p.on("exit", (code) => onExit(code));
 	};
 
@@ -142,15 +136,6 @@ export function spawnShell(
 		// ENOENT 无法区分「可执行文件缺失」和「工作目录无效」，先检查 cwd
 		if (!existsSync(cwd)) {
 			onData(`\r\n[Folder Terminal] ${t("pty.cwdMissing")}${cwd}\r\n`);
-			return;
-		}
-		if (isWindows && triedWinpty) {
-			// winpty 未安装 -> cmd.exe（无 PTY）
-			triedWinpty = false;
-			proc = spawnCmd(cwd, env).proc;
-			bind(proc);
-			proc.on("error", (e) => onData(`\r\n[Folder Terminal] ${t("pty.spawnFailed")}${e.message}\r\n`));
-			onData(`\r\n[Folder Terminal] ${t("pty.fallbackWinpty")}\r\n`);
 			return;
 		}
 		if (process.platform === "linux") {
@@ -206,7 +191,3 @@ export function spawnShell(
 	};
 }
 
-function spawnCmd(cwd: string, env: NodeJS.ProcessEnv): SpawnResult {
-	const proc = spawn("cmd.exe", [], { cwd, env });
-	return { proc, control: null };
-}

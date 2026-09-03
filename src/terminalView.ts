@@ -72,6 +72,76 @@ const DARK_THEME = {
 	brightWhite: "#f0f6fc",
 };
 
+/**
+ * Windows 管道模式无真实 PTY，cmd.exe 不会回显正在输入的字符。
+ * 此类在终端前端维护一行本地回显，让用户能看到自己的输入；
+ * 回车/方向键/Tab 等控制序列直接透传，不做显示。
+ */
+class LocalEcho {
+	private buffer = "";
+	private inEscape = false;
+
+	constructor(private readonly writer: (data: string) => void) {}
+
+	feed(data: string): void {
+		for (const ch of data) {
+			const code = ch.codePointAt(0) ?? 0;
+
+			// 处于转义序列中（方向键等），不回显，直到遇到序列终止字符
+			if (this.inEscape) {
+				if (
+					(code >= 0x40 && code <= 0x5f) || // @A-Z[\]^_ 终止 CSI/SS3
+					code === 0x7e || // ~ 终止某些序列
+					code === 0x07 // BEL
+				) {
+					this.inEscape = false;
+				}
+				continue;
+			}
+
+			if (code === 0x1b) {
+				// ESC
+				this.inEscape = true;
+				continue;
+			}
+
+			if (code === 0x7f || code === 0x08) {
+				// Backspace / DEL：本地 buffer 出栈并擦除屏幕上的字符
+				if (this.buffer.length > 0) {
+					this.buffer = this.buffer.slice(0, -1);
+					this.writer("\b \b");
+				}
+				continue;
+			}
+
+			if (code === 0x0d || code === 0x0a) {
+				// 回车：清空本地 buffer，由 shell 自行回显命令行
+				this.buffer = "";
+				continue;
+			}
+
+			if (code === 0x09) {
+				// Tab：shell 补全后会回显，不做本地回显
+				continue;
+			}
+
+			if (code >= 0x20) {
+				// 可打印字符（含中文等 Unicode）
+				this.buffer += ch;
+				this.writer(ch);
+				continue;
+			}
+
+			// 其余控制字符忽略
+		}
+	}
+
+	reset(): void {
+		this.buffer = "";
+		this.inEscape = false;
+	}
+}
+
 const LIGHT_THEME = {
 	background: "#ffffff",
 	foreground: "#1f2328",
@@ -122,6 +192,8 @@ export class FolderTerminalView extends ItemView {
 	private readonly terminals = new Map<string, Terminal>();
 	private readonly fitAddons = new Map<string, FitAddon>();
 	private readonly sessions = new Map<string, ShellSession>();
+	/** Windows 管道模式下为每个标签维护的本地回显实例 */
+	private readonly localEchos = new Map<string, LocalEcho>();
 	/** xterm 初始化失败时的纯文本降级输出 */
 	private readonly fallbacks = new Map<string, HTMLElement>();
 	private resizeObserver: ResizeObserver | null = null;
@@ -374,6 +446,7 @@ export class FolderTerminalView extends ItemView {
 		this.fitAddons.clear();
 		this.fallbacks.clear();
 		this.hosts.clear();
+		this.localEchos.clear();
 		this.tabs = [];
 		this.activeTabId = null;
 	}
@@ -574,7 +647,10 @@ export class FolderTerminalView extends ItemView {
 			terminal.loadAddon(fitAddon);
 			terminal.loadAddon(new WebLinksAddon());
 			terminal.open(host);
-			terminal.onData((data) => this.sessions.get(tab.id)?.write(data));
+			terminal.onData((data) => {
+				this.localEchos.get(tab.id)?.feed(data);
+				this.sessions.get(tab.id)?.write(data);
+			});
 			this.terminals.set(tab.id, terminal);
 			this.fitAddons.set(tab.id, fitAddon);
 
@@ -652,6 +728,9 @@ export class FolderTerminalView extends ItemView {
 			},
 		);
 		this.sessions.set(tab.id, session);
+		if (session.needsLocalEcho) {
+			this.localEchos.set(tab.id, new LocalEcho((data) => write(data)));
+		}
 		const terminal = this.terminals.get(tab.id);
 		session.resize(terminal?.rows ?? 24, terminal?.cols ?? 80);
 
@@ -726,6 +805,7 @@ export class FolderTerminalView extends ItemView {
 		this.fallbacks.delete(id);
 		this.hosts.get(id)?.remove();
 		this.hosts.delete(id);
+		this.localEchos.delete(id);
 		this.tabs = this.tabs.filter((t) => t.id !== id);
 	}
 

@@ -11,6 +11,8 @@ export interface ShellSession {
 	resize(rows: number, cols: number): void;
 	/** 结束会话 */
 	kill(): void;
+	/** 当前会话是否没有真实 PTY，需要前端自己做按键回显 */
+	needsLocalEcho?: boolean;
 }
 
 const isWindows = process.platform === "win32";
@@ -85,8 +87,10 @@ function spawnScript(cwd: string, env: NodeJS.ProcessEnv, shell: string): SpawnR
  * 平台策略：
  * - macOS / Linux：优先 python3 PTY 代理（pty.fork，真实伪终端，支持 TIOCSWINSZ 尺寸同步）
  * - Linux：python3 缺失时回退到 `script` 命令（仍可交互，尺寸同步降级为 stty）
- * - Windows：直连 shell（默认 cmd.exe），无 PTY。输入输出经管道转发，输入与方向键可用，
+ * - Windows：直连 shell（默认 cmd.exe），无 PTY。输入输出经管道转发，方向键可用，
  *   但 vim / 进度条等依赖终端能力的程序受限；输出按 chunk 嗅探 UTF-8 / GBK 解码。
+ *   因管道模式没有 line discipline 回显，前端 terminalView 通过 LocalEcho 把用户输入
+ *   即时写回 xterm，解决"打字看不见"的问题。
  *
  * 说明 1：macOS 上不用 `script`，因为 Node/Electron 的 child_process 管道是 socketpair（libuv），
  * BSD script 会对 stdin 做 tcgetattr 而直接失败（已实测复现）。
@@ -158,6 +162,7 @@ export function spawnShell(
 
 	let lastResizeKey = "";
 	return {
+		needsLocalEcho: isWindows,
 		write(data: string): void {
 			try {
 				if (proc.stdin?.writable) {

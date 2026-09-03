@@ -7,6 +7,8 @@
 
 ## 🔧 Under the hood
 - `src/pty.ts`：新增 `findWinpty()`，扫描 Git for Windows、MSYS2、Scoop、WinGet 等常见位置。
+- **补充**：若上述固定路径均未命中，`findWinpty()` 会遍历系统 PATH，从其中的 `git.exe` 反推 Git 安装根目录（兼容 `cmd` / `bin` / `mingw64\bin` 子目录），再定位 `<Git根>\usr\bin\winpty.exe`。
+  这覆盖了 **Git 装在非标准路径（如 `D:\SoftwareDev\Tools\Git`）且只把 `cmd` 加进 PATH** 的实际情况——本机正是如此，原逻辑与固定路径扫描都找不到，现已可正确命中 `D:\SoftwareDev\Tools\Git\usr\bin\winpty.exe`。
 - Windows 分支优先使用扫描到的 winpty 完整路径，未扫描到时仍保持向后兼容（尝试 PATH 中的 `winpty`）。
 - 修正 `proc.on("error")` 回调内的缩进。
 

@@ -1,6 +1,6 @@
 import { spawn, type ChildProcess } from "child_process";
 import { existsSync } from "fs";
-import { join } from "path";
+import { join, delimiter } from "path";
 import type { Writable } from "stream";
 import proxyCode from "./pty-proxy.py";
 import { t } from "./i18n";
@@ -54,6 +54,21 @@ function findWinpty(): string | null {
 	if (localAppData) {
 		const wingetPath = join(localAppData, "Microsoft", "WinGet", "Links", "winpty.exe");
 		if (existsSync(wingetPath)) return wingetPath;
+	}
+
+	// 从 PATH 中的 git.exe 反推 Git 安装根目录，再定位 usr\bin\winpty.exe。
+	// 覆盖 Git 装在非标准路径（如 D:\SoftwareDev\Tools\Git）且只把 cmd 加进 PATH 的情况。
+	const pathEnv = process.env.PATH || "";
+	for (const dir of pathEnv.split(delimiter)) {
+		if (!dir) continue;
+		const direct = join(dir, "winpty.exe");
+		if (existsSync(direct)) return direct;
+		const gitExe = join(dir, "git.exe");
+		if (existsSync(gitExe)) {
+			const gitRoot = dir.replace(/[\\/](cmd|bin|mingw64(?:[\\/]bin)?)$/i, "");
+			const wp = join(gitRoot, "usr", "bin", "winpty.exe");
+			if (existsSync(wp)) return wp;
+		}
 	}
 
 	// 留给 PATH 中直接可用的 winpty

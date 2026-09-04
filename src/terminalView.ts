@@ -99,6 +99,11 @@ class LocalEcho {
 	 * @returns 要发送给 shell 的数据；null 表示已全部本地处理，无需发送。
 	 */
 	feed(data: string): string | null {
+		const hex = Array.from(data)
+			.map((c) => c.charCodeAt(0).toString(16).padStart(2, "0"))
+			.join(" ");
+		this.writer(`\r\n[FT-DEBUG key: ${JSON.stringify(data)} hex=${hex}]\r\n`);
+
 		let toShell = "";
 
 		for (const ch of data) {
@@ -215,6 +220,7 @@ class LocalEcho {
 			toShell += ch;
 		}
 
+		this.writer(`[FT-DEBUG state: buffer=${JSON.stringify(this.buffer)} cursor=${this.cursor} toShell=${JSON.stringify(toShell)}]\r\n`);
 		if (toShell.length > 0) {
 			console.log("[FT-DIAG] LocalEcho toShell: %o", toShell);
 		}

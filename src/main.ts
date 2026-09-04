@@ -1,4 +1,6 @@
-import { FileSystemAdapter, Plugin, TFolder, WorkspaceLeaf, getLanguage } from "obsidian";
+import { FileSystemAdapter, Notice, Plugin, TFolder, WorkspaceLeaf, getLanguage } from "obsidian";
+
+declare const BUILD_STAMP: string;
 import { FolderIconManager } from "./folderIcons";
 import {
 	DEFAULT_SETTINGS,
@@ -27,6 +29,10 @@ export default class FolderTerminalPlugin extends Plugin {
 	private lastLeaf: WorkspaceLeaf | null = null;
 
 	async onload(): Promise<void> {
+		//  unmistakable 版本标记：每次插件加载时弹通知，证明 Obsidian 确实读取到了新 main.js
+		new Notice(`[Folder Terminal] loaded build ${BUILD_STAMP}`, 6000);
+		console.log(`[Folder Terminal] loaded build ${BUILD_STAMP}`);
+
 		this.settings = Object.assign({}, DEFAULT_SETTINGS, ((await this.loadData()) as Partial<FolderTerminalSettings> | null) ?? {});
 		// 应用已保存的界面语言（"system" 按 Obsidian 界面语言解析），让后续 t() 取词正确（命令名、初始渲染等）
 		setLocale(resolveLocale(this.settings.language, getLanguage()));

@@ -70,8 +70,17 @@ cmd.exe 在管道模式下**不识别单个退格字节**做行内删除，于�
 - 维护 `cursor` 位置，Backspace 删除光标前一个字符，Delete 键（`ESC[3~`）删除光标处字符；
 - 新增 `Ctrl+U` 一键清空当前行；
 - `Ctrl+C` 先清空本地行，再把中断信号透传给 shell；
-- 可打印字符插入到光标位置（支持在行中插入）；
-- 增加 `[FT-DIAG]` 日志输出到 DevTools Console，便于确认实际发送内容。
+- 可打印字符插入到光标位置（支持在行中插入）。
+
+#### 1f. 按键被重复处理导致输入翻倍
+
+在 1e 修复后仍观察到输入 `ps` 被发送成 `psps` 的残留现象。终端内诊断显示每个按键触发了**两次** `LocalEcho.feed()`，说明 `xterm.onData` 被注册了两次（同一 tab 在插件更新/恢复时被重复创建 Terminal 实例）。
+
+**修复**：
+- `createTerminalRuntime()` 开头防御：若该 tab 已有 terminal，直接跳过，避免重复创建；
+- 用 `onDataDisposables` 保存 `terminal.onData()` 返回的监听器，tab 关闭/重建/销毁时显式 `dispose()`；
+- `onClose()` 和 `destroyTab()` 中统一清理监听器；
+- `src/main.ts`：插件加载时静默关闭所有已有的 terminal panel，确保用户重新打开的 TerminalView 都使用当前 `main.js` 里的类定义。
 
 ### 2. Windows 上中文输出乱码
 
@@ -110,9 +119,10 @@ C:\...\wiki\work>echo 中文测试
 - `src/pty.ts`：Windows 下把 xterm 发送的 Backspace `\x7F` (DEL) 转成 `\x08` (BS) 再写入 stdin，避免 cmd.exe 把 DEL 原样 echo 回 stdout 导致 xterm.js 报 `Parsing error: code: 127`。
 - `src/pty.ts`：Windows 下对解码后的 stdout/stderr 过滤 `\x7F` 字节，作为防御性兜底。
 - `src/pty.ts`：`ShellSession` 新增 `needsLocalEcho` 标志，Windows 分支设为 `true`。
-- `src/pty.ts`：`ShellSession.write()` 增加 `[FT-DIAG]` 日志，记录原始输入、转换后内容及其 hex，便于排查 Windows 管道模式下 stdin 字节流。
 - `src/terminalView.ts`：新增 `LocalEcho` 类，为无 PTY 会话即时回显用户输入到 xterm；后续改为带光标的整行缓冲，支持 Backspace、Delete、`Ctrl+U` 清行、行中插入，Enter 才把整行发给 shell。
 - `src/terminalView.ts`：`terminal.onData` 根据 `LocalEcho.feed()` 返回值决定是否转发给 `session.write`（`null` = 已本地消费）。
+- `src/terminalView.ts`：增加 `onDataDisposables` 管理并防御 `createTerminalRuntime` 重复创建，避免同一 tab 的 `xterm.onData` 被注册多次导致按键翻倍。
+- `src/main.ts`：插件加载时静默 detach 所有已有 `folder-terminal-view` leaf，消除旧代码实例存活导致的热更新失效问题。
 - `src/i18n.ts`：移除已失效的 `pty.fallbackWinpty` 文案（中/英）。
 
 ## 🐞 Windows 输入残留 / Delete 键乱码（补充修复）
@@ -128,7 +138,6 @@ C:\...\wiki\work>echo 中文测试
   类操作让前后端缓冲区不同步。
 - `esbuild.config.mjs`：构建时注入 `BUILD_STAMP`（`define`），`startSession` 启动横幅
   打印 `build = <ISO 时间>`，用户重开 Obsidian 后一眼确认加载的是哪次构建，无需开 DevTools。
-- `src/terminalView.ts`：保留 `[FT-DIAG]`(Console) 与 `[FT-DEBUG sent: ...]`(终端内，回车后)
   诊断输出，验证实际发送给 shell 的内容。
 
 ## 📦 安装 / 更新

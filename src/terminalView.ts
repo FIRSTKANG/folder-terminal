@@ -150,6 +150,8 @@ class LocalEcho {
 				this.buffer = "";
 				this.cursor = 0;
 				console.log("[FT-DIAG] LocalEcho Enter: buffer=%o, sending=%o", line, line + "\r\n");
+				// 临时屏幕诊断，便于不开 Console 也能确认实际发送内容
+				this.writer(`\r\n[FT-DEBUG sent: ${JSON.stringify(line)}]\r\n`);
 				toShell += line + "\r\n";
 				continue;
 			}

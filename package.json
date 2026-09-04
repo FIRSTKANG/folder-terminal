@@ -1,6 +1,6 @@
 {
 	"name": "obsidian-folder-terminal",
-	"version": "0.4.9",
+	"version": "1.0.0",
 	"description": "Hover over a folder in the file explorer to reveal a terminal icon; click it to open a real shell (PTY) at the bottom of Obsidian, rooted at that folder.",
 	"main": "main.js",
 	"scripts": {

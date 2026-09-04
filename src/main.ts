@@ -34,6 +34,16 @@ export default class FolderTerminalPlugin extends Plugin {
 		console.log(`[Folder Terminal] loaded build ${BUILD_STAMP}`);
 
 		this.settings = Object.assign({}, DEFAULT_SETTINGS, ((await this.loadData()) as Partial<FolderTerminalSettings> | null) ?? {});
+
+		// 关键修复：插件热更新时，旧代码创建的 TerminalView 实例仍会存活，导致用户看到旧行为。
+		// 加载新代码后强制关闭所有已有 terminal panel，让用户从文件夹图标重新打开，
+		// 确保每个 TerminalView 都使用当前 main.js 里的类。
+		const staleLeaves = this.app.workspace.getLeavesOfType(TERMINAL_VIEW_TYPE);
+		if (staleLeaves.length > 0) {
+			console.log(`[Folder Terminal] detaching ${staleLeaves.length} stale terminal leaf(s) after reload`);
+			for (const leaf of staleLeaves) leaf.detach();
+			new Notice(`[Folder Terminal] 已刷新终端面板，请重新打开`, 8000);
+		}
 		// 应用已保存的界面语言（"system" 按 Obsidian 界面语言解析），让后续 t() 取词正确（命令名、初始渲染等）
 		setLocale(resolveLocale(this.settings.language, getLanguage()));
 

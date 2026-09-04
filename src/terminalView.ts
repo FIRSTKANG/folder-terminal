@@ -9,6 +9,9 @@ import type { FolderTerminalSettings, PathTabOverrides } from "./settings";
 import { TabSettingsModal } from "./tabSettingsModal";
 import { t } from "./i18n";
 
+/** 由 esbuild 在构建时注入的时间戳（见 esbuild.config.mjs 的 define）。 */
+declare const BUILD_STAMP: string;
+
 export const TERMINAL_VIEW_TYPE = "folder-terminal-view";
 
 export interface TerminalTab {
@@ -103,12 +106,19 @@ class LocalEcho {
 
 			// 正在收集 ESC 序列（方向键、Delete 等）
 			if (this.escapeBuffer.length > 0) {
+				// 防御：序列异常超长则丢弃，避免 escapeBuffer 卡死
+				if (this.escapeBuffer.length > 16) {
+					this.escapeBuffer = "";
+				}
+				// CSI/SS3 引导字符：ESC 之后紧跟 [ 或 O 必须继续收集，
+				// 不能把它当终止字节（[ = 0x5b 落在 0x40-0x5f 区间内）。
+				if (this.escapeBuffer === "\x1b" && (ch === "[" || ch === "O")) {
+					this.escapeBuffer += ch;
+					continue;
+				}
 				this.escapeBuffer += ch;
-				if (
-					(code >= 0x40 && code <= 0x5f) || // @A-Z[\]^_ 终止 CSI/SS3
-					code === 0x7e || // ~ 终止某些序列
-					code === 0x07 // BEL
-				) {
+				// 终止字节：0x40-0x7e（CSI/SS3 的 final byte）
+				if (code >= 0x40 && code <= 0x7e) {
 					const seq = this.escapeBuffer;
 					this.escapeBuffer = "";
 					// Delete 键（ESC[3~）：按现代终端语义删除光标处字符
@@ -119,7 +129,7 @@ class LocalEcho {
 						}
 						continue;
 					}
-					// 其他 ESC 序列直接透传
+					// 其他 ESC 序列直接透传（方向键等）
 					toShell += seq;
 				}
 				continue;
@@ -174,6 +184,18 @@ class LocalEcho {
 				// Ctrl+C：先清空本地行，再把中断信号透传给 shell
 				this.clearLine();
 				toShell += "\x03";
+				continue;
+			}
+
+			if (code === 0x01) {
+				// Ctrl+A：光标移到行首（防止"全选/Home"导致前后端不同步）
+				this.cursor = 0;
+				continue;
+			}
+
+			if (code === 0x05) {
+				// Ctrl+E：光标移到行尾
+				this.cursor = this.buffer.length;
 				continue;
 			}
 
@@ -800,6 +822,7 @@ export class FolderTerminalView extends ItemView {
 		write(`  cwd      = ${cwd}\r\n`);
 		write(`  shell    = ${this.effectiveSettings(tab).shell || "默认($SHELL)"}\r\n`);
 		write(`  platform = ${process.platform}\r\n`);
+		write(`  build    = ${BUILD_STAMP}\r\n`);
 
 		const session = spawnShell(
 			cwd,

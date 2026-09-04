@@ -9,10 +9,15 @@ if you want to view the source, please visit the github repository of this plugi
 
 const prod = process.argv[2] === "production";
 
+const buildStamp = new Date().toISOString();
+
 const context = await esbuild.context({
 	banner: { js: banner },
 	entryPoints: ["src/main.ts"],
 	bundle: true,
+	// 构建时间戳：让用户在终端启动横幅里直接看到当前加载的是哪次构建，
+	// 无需开 DevTools 即可确认 Obsidian 是否重新加载了新 main.js。
+	define: { BUILD_STAMP: JSON.stringify(buildStamp) },
 	// 桌面端插件：Node 内置模块（child_process / path / fs 等）由 Obsidian 运行时提供，
 	// platform:"node" 让 esbuild 自动把它们标为 external，无需再依赖 builtin-modules。
 	platform: "node",

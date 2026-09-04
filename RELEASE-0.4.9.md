@@ -115,6 +115,22 @@ C:\...\wiki\work>echo 中文测试
 - `src/terminalView.ts`：`terminal.onData` 根据 `LocalEcho.feed()` 返回值决定是否转发给 `session.write`（`null` = 已本地消费）。
 - `src/i18n.ts`：移除已失效的 `pty.fallbackWinpty` 文案（中/英）。
 
+## 🐞 Windows 输入残留 / Delete 键乱码（补充修复）
+
+仿真测试 `scripts/lcalecho-test.mjs` 复刻 `LocalEcho.feed()` 与 `pty.write()` 逻辑，
+覆盖「dir→删光→ps→回车」「Ctrl+U 清行」「Delete 键」等序列，断言只向 cmd.exe 发送正确整行。
+
+- `src/terminalView.ts`：修复 CSI/SS3 转义序列收集 bug——原实现把 `ESC[` 中的 `[`(0x5b)
+  误判为终止字节，导致 `Delete`(ESC[3~) 一次性送达时被截断成 `ESC[`+`3`+`~`，
+  把 `3~` 当字符插进输入缓冲区（输入残留的根因之一）。现改为：ESC 后紧跟 `[`/`O`
+  必须继续收集，直到 0x40-0x7e 终止字节；并加 >16 字节防御性丢弃。
+- `src/terminalView.ts`：新增 `Ctrl+A`(行首) / `Ctrl+E`(行尾) 光标定位，避免「全选/Home」
+  类操作让前后端缓冲区不同步。
+- `esbuild.config.mjs`：构建时注入 `BUILD_STAMP`（`define`），`startSession` 启动横幅
+  打印 `build = <ISO 时间>`，用户重开 Obsidian 后一眼确认加载的是哪次构建，无需开 DevTools。
+- `src/terminalView.ts`：保留 `[FT-DIAG]`(Console) 与 `[FT-DEBUG sent: ...]`(终端内，回车后)
+  诊断输出，验证实际发送给 shell 的内容。
+
 ## 📦 安装 / 更新
 
 - 社区市场更新，或从 [Releases](https://github.com/FIRSTKANG/folder-terminal/releases/tag/0.4.9) 下载三件套手动覆盖。

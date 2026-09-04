@@ -182,7 +182,6 @@ export function spawnShell(
 					// 经常把它原样 echo 回 stdout，导致 xterm.js 报 "Parsing error: code: 127"。
 					// 转成 BS (\x08) 再发，既能删除 cmd 缓冲区字符，又不会让 stdout 出现 0x7F。
 					if (isWindows) sanitized = sanitized.replace(/\x7F/g, "\x08");
-					console.log("[FT-DIAG] pty.write: raw=%o sanitized=%o hex=%s", data, sanitized, Buffer.from(sanitized).toString("hex"));
 					proc.stdin.write(sanitized);
 				}
 			} catch {

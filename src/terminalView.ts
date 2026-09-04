@@ -99,11 +99,6 @@ class LocalEcho {
 	 * @returns 要发送给 shell 的数据；null 表示已全部本地处理，无需发送。
 	 */
 	feed(data: string): string | null {
-		const hex = Array.from(data)
-			.map((c) => c.charCodeAt(0).toString(16).padStart(2, "0"))
-			.join(" ");
-		this.writer(`\r\n[FT-DEBUG key: ${JSON.stringify(data)} hex=${hex}]\r\n`);
-
 		let toShell = "";
 
 		for (const ch of data) {
@@ -164,9 +159,6 @@ class LocalEcho {
 				const line = this.buffer;
 				this.buffer = "";
 				this.cursor = 0;
-				console.log("[FT-DIAG] LocalEcho Enter: buffer=%o, sending=%o", line, line + "\r\n");
-				// 临时屏幕诊断，便于不开 Console 也能确认实际发送内容
-				this.writer(`\r\n[FT-DEBUG sent: ${JSON.stringify(line)}]\r\n`);
 				toShell += line + "\r\n";
 				continue;
 			}
@@ -220,10 +212,6 @@ class LocalEcho {
 			toShell += ch;
 		}
 
-		this.writer(`[FT-DEBUG state: buffer=${JSON.stringify(this.buffer)} cursor=${this.cursor} toShell=${JSON.stringify(toShell)}]\r\n`);
-		if (toShell.length > 0) {
-			console.log("[FT-DIAG] LocalEcho toShell: %o", toShell);
-		}
 		return toShell.length > 0 ? toShell : null;
 	}
 
@@ -743,11 +731,8 @@ export class FolderTerminalView extends ItemView {
 	/** 为标签创建 xterm 运行时（配色/字号按「有效设置」= 全局 + 标签覆盖） */
 	private createTerminalRuntime(tab: TerminalTab): void {
 		const host = this.hosts.get(tab.id)!;
-		console.log(`[FT-DIAG] createTerminalRuntime called for tab ${tab.id} (cwd=${tab.cwd}), existing terminals=${this.terminals.size}`);
-		if (this.terminals.has(tab.id)) {
-			console.warn(`[FT-DIAG] createTerminalRuntime SKIPPED for tab ${tab.id}: terminal already exists`);
-			return;
-		}
+		// 防御：同一 tab 被重复创建时跳过，避免 xterm.onData 被注册多次导致按键翻倍
+		if (this.terminals.has(tab.id)) return;
 		try {
 			const settings = this.effectiveSettings(tab);
 			const isDark =
@@ -817,7 +802,6 @@ export class FolderTerminalView extends ItemView {
 	}
 
 	private startSession(tab: TerminalTab): void {
-		console.log(`[FT-DIAG] startSession called for tab ${tab.id} (cwd=${tab.cwd}), existing sessions=${this.sessions.size}`);
 		this.sessions.get(tab.id)?.kill();
 		const cwd = resolveCwd(this.getVaultRoot(), tab.cwd);
 

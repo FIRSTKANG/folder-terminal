@@ -304,6 +304,8 @@ export class FolderTerminalView extends ItemView {
 	private readonly localEchos = new Map<string, LocalEcho>();
 	/** xterm 初始化失败时的纯文本降级输出 */
 	private readonly fallbacks = new Map<string, HTMLElement>();
+	/** 防止 xterm.onData 被重复注册（同一 tab 多次 createTerminalRuntime 时） */
+	private readonly onDataDisposables = new Map<string, { dispose(): void }>();
 	private resizeObserver: ResizeObserver | null = null;
 	/** view 是否已完成 setupView（hostEl 已就绪）；未完成时 addTab 先排队 */
 	private ready = false;
@@ -553,6 +555,8 @@ export class FolderTerminalView extends ItemView {
 		this.terminals.clear();
 		this.fitAddons.clear();
 		this.fallbacks.clear();
+		for (const d of this.onDataDisposables.values()) d.dispose();
+		this.onDataDisposables.clear();
 		this.hosts.clear();
 		this.localEchos.clear();
 		this.tabs = [];
@@ -739,6 +743,11 @@ export class FolderTerminalView extends ItemView {
 	/** 为标签创建 xterm 运行时（配色/字号按「有效设置」= 全局 + 标签覆盖） */
 	private createTerminalRuntime(tab: TerminalTab): void {
 		const host = this.hosts.get(tab.id)!;
+		console.log(`[FT-DIAG] createTerminalRuntime called for tab ${tab.id} (cwd=${tab.cwd}), existing terminals=${this.terminals.size}`);
+		if (this.terminals.has(tab.id)) {
+			console.warn(`[FT-DIAG] createTerminalRuntime SKIPPED for tab ${tab.id}: terminal already exists`);
+			return;
+		}
 		try {
 			const settings = this.effectiveSettings(tab);
 			const isDark =
@@ -755,13 +764,14 @@ export class FolderTerminalView extends ItemView {
 			terminal.loadAddon(fitAddon);
 			terminal.loadAddon(new WebLinksAddon());
 			terminal.open(host);
-		terminal.onData((data) => {
+		const onDataDisposable = terminal.onData((data) => {
 			const echo = this.localEchos.get(tab.id);
 			const toShell = echo ? echo.feed(data) : data;
 			if (toShell != null) {
 				this.sessions.get(tab.id)?.write(toShell);
 			}
 		});
+		this.onDataDisposables.set(tab.id, onDataDisposable);
 			this.terminals.set(tab.id, terminal);
 			this.fitAddons.set(tab.id, fitAddon);
 
@@ -796,6 +806,8 @@ export class FolderTerminalView extends ItemView {
 		this.terminals.delete(tab.id);
 		this.fitAddons.delete(tab.id);
 		this.fallbacks.delete(tab.id);
+		this.onDataDisposables.get(tab.id)?.dispose();
+		this.onDataDisposables.delete(tab.id);
 		this.hosts.get(tab.id)?.empty();
 		this.createTerminalRuntime(tab);
 		this.startSession(tab);
@@ -805,6 +817,7 @@ export class FolderTerminalView extends ItemView {
 	}
 
 	private startSession(tab: TerminalTab): void {
+		console.log(`[FT-DIAG] startSession called for tab ${tab.id} (cwd=${tab.cwd}), existing sessions=${this.sessions.size}`);
 		this.sessions.get(tab.id)?.kill();
 		const cwd = resolveCwd(this.getVaultRoot(), tab.cwd);
 
@@ -915,6 +928,8 @@ export class FolderTerminalView extends ItemView {
 		this.terminals.delete(id);
 		this.fitAddons.delete(id);
 		this.fallbacks.delete(id);
+		this.onDataDisposables.get(id)?.dispose();
+		this.onDataDisposables.delete(id);
 		this.hosts.get(id)?.remove();
 		this.hosts.delete(id);
 		this.localEchos.delete(id);

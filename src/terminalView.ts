@@ -783,6 +783,7 @@ export class FolderTerminalView extends ItemView {
 				fontFamily: FONT_FAMILY,
 				theme: isDark ? DARK_THEME : LIGHT_THEME,
 				scrollback: 10000,
+				allowProposedApi: true,
 			});
 			const fitAddon = new FitAddon();
 			terminal.loadAddon(fitAddon);

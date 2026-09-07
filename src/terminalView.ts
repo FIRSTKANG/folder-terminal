@@ -92,6 +92,14 @@ class LocalEcho {
 	private cursor = 0;
 	/** 未完整的 ESC 序列缓冲 */
 	private escapeBuffer = "";
+	/** 已提交的命令历史（管道模式下 shell 无 readline，历史必须由前端维护） */
+	private history: string[] = [];
+	/** 当前浏览位置：等于 history.length 表示"正在编辑新行"（未浏览历史） */
+	private historyIndex = 0;
+	/** 首次按 ↑ 之前正在编辑的内容，按 ↓ 回到底部时恢复 */
+	private draft = "";
+	/** 历史条数上限，防止无限增长 */
+	private static readonly MAX_HISTORY = 500;
 
 	constructor(private readonly writer: (data: string) => void) {}
 
@@ -118,22 +126,49 @@ class LocalEcho {
 					continue;
 				}
 				this.escapeBuffer += ch;
-				// 终止字节：0x40-0x7e（CSI/SS3 的 final byte）
-				if (code >= 0x40 && code <= 0x7e) {
-					const seq = this.escapeBuffer;
-					this.escapeBuffer = "";
-					// Delete 键（ESC[3~）：按现代终端语义删除光标处字符
-					if (seq === "\x1b[3~") {
-						if (this.cursor < this.buffer.length) {
-							this.buffer = this.buffer.slice(0, this.cursor) + this.buffer.slice(this.cursor + 1);
-							this.redrawFromCursor();
+					// 终止字节：0x40-0x7e（CSI/SS3 的 final byte）
+					if (code >= 0x40 && code <= 0x7e) {
+						const seq = this.escapeBuffer;
+						this.escapeBuffer = "";
+						// Delete 键（ESC[3~）：按现代终端语义删除光标处字符
+						if (seq === "\x1b[3~") {
+							if (this.cursor < this.buffer.length) {
+								this.buffer = this.buffer.slice(0, this.cursor) + this.buffer.slice(this.cursor + 1);
+								this.redrawFromCursor();
+							}
+							continue;
 						}
-						continue;
+						// ↑ / ↓：命令历史导航（管道模式下 shell 不响应，前端自己实现）
+						if (seq === "\x1b[A" || seq === "\x1bOA") {
+							this.historyPrev();
+							continue;
+						}
+						if (seq === "\x1b[B" || seq === "\x1bOB") {
+							this.historyNext();
+							continue;
+						}
+						// ← / →：行内光标移动（同时支持 CSI 与 SS3 两种引导）
+						if (seq === "\x1b[D" || seq === "\x1bOD") {
+							this.moveCursor(-1);
+							continue;
+						}
+						if (seq === "\x1b[C" || seq === "\x1bOC") {
+							this.moveCursor(1);
+							continue;
+						}
+						// Home / End
+						if (seq === "\x1b[H" || seq === "\x1bOH" || seq === "\x1b[1~") {
+							this.moveCursorTo(0);
+							continue;
+						}
+						if (seq === "\x1b[F" || seq === "\x1bOF" || seq === "\x1b[4~") {
+							this.moveCursorTo(this.buffer.length);
+							continue;
+						}
+						// 其他 ESC 序列直接透传
+						toShell += seq;
 					}
-					// 其他 ESC 序列直接透传（方向键等）
-					toShell += seq;
-				}
-				continue;
+					continue;
 			}
 
 			if (code === 0x1b) {
@@ -158,6 +193,13 @@ class LocalEcho {
 			if (code === 0x0d || code === 0x0a) {
 				// Enter：把当前整行一次性发给 shell
 				const line = this.buffer;
+				// 非空行记入历史（与上一条重复则不记，避免连按 ↑ 全是同一条）
+				if (line.trim().length > 0 && this.history[this.history.length - 1] !== line) {
+					this.history.push(line);
+					if (this.history.length > LocalEcho.MAX_HISTORY) this.history.shift();
+				}
+				this.historyIndex = this.history.length;
+				this.draft = "";
 				this.buffer = "";
 				this.cursor = 0;
 				toShell += line + "\r\n";
@@ -220,6 +262,8 @@ class LocalEcho {
 		const len = this.buffer.length;
 		this.buffer = "";
 		this.cursor = 0;
+		// 清空后回到"编辑新行"状态，下次按 ↑ 会重新以当前内容作为草稿
+		this.historyIndex = this.history.length;
 		if (len > 0) {
 			this.writer(`\x1b[${len}D`); // 光标移到行首
 			this.writer("\x1b[K"); // 从光标清到行尾
@@ -232,10 +276,62 @@ class LocalEcho {
 		this.writer(`\x1b[${this.buffer.length - this.cursor + 1}D`);
 	}
 
+	/**
+	 * 把屏幕上的整行输入替换为 text，光标落到行尾。
+	 * 用于历史切换时整体刷新当前行。
+	 */
+	private setLine(text: string): void {
+		if (this.cursor > 0) this.writer(`\x1b[${this.cursor}D`); // 回到行首
+		this.writer("\x1b[K"); // 清到行尾
+		this.buffer = text;
+		this.cursor = text.length;
+		this.writer(text);
+	}
+
+	/** ↑：浏览上一条历史命令 */
+	private historyPrev(): void {
+		if (this.history.length === 0) return;
+		// 第一次按 ↑ 时，先把当前正在编辑的内容存为草稿
+		if (this.historyIndex === this.history.length) {
+			this.draft = this.buffer;
+		}
+		if (this.historyIndex > 0) {
+			this.historyIndex--;
+			this.setLine(this.history[this.historyIndex]);
+		}
+	}
+
+	/** ↓：浏览下一条历史命令；回到底部时恢复草稿 */
+	private historyNext(): void {
+		if (this.historyIndex >= this.history.length) return;
+		this.historyIndex++;
+		if (this.historyIndex === this.history.length) {
+			this.setLine(this.draft);
+		} else {
+			this.setLine(this.history[this.historyIndex]);
+		}
+	}
+
+	/** 光标相对移动（负=左移，正=右移），自动限制在行内 */
+	private moveCursor(delta: number): void {
+		this.moveCursorTo(this.cursor + delta);
+	}
+
+	/** 光标绝对定位到 pos，自动限制在 [0, buffer.length] */
+	private moveCursorTo(pos: number): void {
+		const target = Math.max(0, Math.min(this.buffer.length, pos));
+		const delta = target - this.cursor;
+		if (delta === 0) return;
+		this.writer(delta < 0 ? `\x1b[${-delta}D` : `\x1b[${delta}C`);
+		this.cursor = target;
+	}
+
 	reset(): void {
 		this.buffer = "";
 		this.cursor = 0;
 		this.escapeBuffer = "";
+		this.historyIndex = this.history.length;
+		this.draft = "";
 	}
 }
 
@@ -1420,6 +1516,14 @@ export class FolderTerminalView extends ItemView {
 			} else if (evt.key === "Escape") {
 				evt.preventDefault();
 				this.closeSearch();
+			} else if (evt.key === "ArrowUp") {
+				// ↑：跳到上一处匹配
+				evt.preventDefault();
+				this.runSearch(true);
+			} else if (evt.key === "ArrowDown") {
+				// ↓：跳到下一处匹配
+				evt.preventDefault();
+				this.runSearch(false);
 			}
 		});
 		prev.addEventListener("click", (e) => { e.stopPropagation(); this.runSearch(true); });

@@ -39,6 +39,7 @@ Obsidian 插件：鼠标移到文件浏览器中的**文件夹**上时，标题�
 - 📐 **Live resize** — `TIOCSWINSZ` keeps the PTY size in sync with the panel, so full-screen TUIs react instantly
 - ⚙️ **Settings** — default shell, font size, color scheme (theme / dark / light), panel-reuse toggle
 - 🔗 **Clickable URLs** (xterm web-links)
+- 🔍 **In-terminal search** — press `Ctrl/Cmd+F` (or right-click → Search) to find text in the buffer, with match highlighting, prev/next navigation, live match count, and case-sensitive / regex / whole-word toggles
 - 🎨 **Theme-aware** GitHub-style colors
 
 ### 中文
@@ -55,6 +56,7 @@ Obsidian 插件：鼠标移到文件浏览器中的**文件夹**上时，标题�
 - 📐 自适应尺寸：面板大小变化时通过 `TIOCSWINSZ` 实时调整 PTY 尺寸，**vim 内全屏程序也能即时感知**
 - ⚙️ 设置面板：默认 Shell、字号、配色方案（跟随主题/深色/浅色）、面板复用开关
 - 🔗 链接可点：URL 自动高亮可点击（xterm web-links）
+- 🔍 终端内搜索：按 `Ctrl/Cmd+F`（或右键 → 搜索）在缓冲区检索，支持高亮全部匹配、上/下一处跳转、实时计数，以及区分大小写 / 正则 / 全字匹配开关
 - 🎨 跟随主题：明暗主题下采用 GitHub 风格配色
 
 ## Screenshots / 截图

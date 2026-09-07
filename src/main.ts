@@ -110,6 +110,19 @@ export default class FolderTerminalPlugin extends Plugin {
 				return true;
 			},
 		});
+		this.addCommand({
+			id: "search-terminal",
+			name: t("term.search"),
+			checkCallback: (checking) => {
+				const view = this.app.workspace
+					.getLeavesOfType(TERMINAL_VIEW_TYPE)
+					.map((l) => l.view)
+					.find((v) => v instanceof FolderTerminalView) as FolderTerminalView | undefined;
+				if (!view) return false;
+				if (!checking) view.showSearch();
+				return true;
+			},
+		});
 	}
 
 	onunload(): void {

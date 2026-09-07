@@ -1,5 +1,6 @@
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
+import { SearchAddon } from "@xterm/addon-search";
 import { Terminal } from "@xterm/xterm";
 import { ItemView, Menu, TFolder, TAbstractFile, WorkspaceLeaf, setIcon } from "obsidian";
 import * as fs from "fs";
@@ -261,6 +262,30 @@ const LIGHT_THEME = {
 	brightCyan: "#1b7c83",
 	brightWhite: "#eff2f5",
 };
+
+/**
+ * 搜索高亮配色（GitHub 风格），按深浅主题区分。
+ * addon-search 的 decorations 要求颜色为 #RRGGBB 格式（不支持 rgba），
+ * 这里给出的颜色既保证在各自主题下清晰可见，又与终端配色协调。
+ */
+const SEARCH_DECO = {
+	dark: {
+		matchBackground: "#3d4d1a",
+		matchBorder: "#d29922",
+		matchOverviewRuler: "#d29922",
+		activeMatchBackground: "#9e6a03",
+		activeMatchBorder: "#ffd33d",
+		activeMatchColorOverviewRuler: "#ffd33d",
+	},
+	light: {
+		matchBackground: "#fff8c5",
+		matchBorder: "#d4a72c",
+		matchOverviewRuler: "#d4a72c",
+		activeMatchBackground: "#ffd33d",
+		activeMatchBorder: "#bf8700",
+		activeMatchColorOverviewRuler: "#bf8700",
+	},
+};
 /**
  * 承载 xterm.js 的多标签终端视图。
  *
@@ -292,6 +317,20 @@ export class FolderTerminalView extends ItemView {
 	private readonly localEchos = new Map<string, LocalEcho>();
 	/** xterm 初始化失败时的纯文本降级输出 */
 	private readonly fallbacks = new Map<string, HTMLElement>();
+	/** 每个标签一个 SearchAddon 实例，提供 findNext/findPrevious 搜索内核 */
+	private readonly searchAddons = new Map<string, SearchAddon>();
+
+	/** 搜索浮层根节点（per-view 懒创建，挂在 containerEl 上，覆盖整个终端视图右上角） */
+	private searchOverlayEl: HTMLElement | null = null;
+	private searchInputEl: HTMLInputElement | null = null;
+	private searchCountEl: HTMLElement | null = null;
+	private searchCaseEl: HTMLInputElement | null = null;
+	private searchRegexEl: HTMLInputElement | null = null;
+	private searchWordEl: HTMLInputElement | null = null;
+	/** 搜索浮层当前作用的目标标签 id（showSearch 时锁定为激活标签） */
+	private searchActiveTabId: string | null = null;
+	/** onDidChangeResults 的取消订阅函数（关闭浮层时解绑） */
+	private searchResultsDispose: (() => void) | null = null;
 	/** 防止 xterm.onData 被重复注册（同一 tab 多次 createTerminalRuntime 时） */
 	private readonly onDataDisposables = new Map<string, { dispose(): void }>();
 	private resizeObserver: ResizeObserver | null = null;
@@ -748,6 +787,10 @@ export class FolderTerminalView extends ItemView {
 			const fitAddon = new FitAddon();
 			terminal.loadAddon(fitAddon);
 			terminal.loadAddon(new WebLinksAddon());
+			// 搜索内核：为每个标签加载 SearchAddon（浮层 UI 由插件自实现，见 showSearch）
+			const searchAddon = new SearchAddon();
+			terminal.loadAddon(searchAddon);
+			this.searchAddons.set(tab.id, searchAddon);
 			terminal.open(host);
 		const onDataDisposable = terminal.onData((data) => {
 			const echo = this.localEchos.get(tab.id);
@@ -791,6 +834,8 @@ export class FolderTerminalView extends ItemView {
 		this.terminals.delete(tab.id);
 		this.fitAddons.delete(tab.id);
 		this.fallbacks.delete(tab.id);
+		this.searchAddons.get(tab.id)?.dispose();
+		this.searchAddons.delete(tab.id);
 		this.onDataDisposables.get(tab.id)?.dispose();
 		this.onDataDisposables.delete(tab.id);
 		this.hosts.get(tab.id)?.empty();
@@ -912,12 +957,16 @@ export class FolderTerminalView extends ItemView {
 		this.terminals.delete(id);
 		this.fitAddons.delete(id);
 		this.fallbacks.delete(id);
+		this.searchAddons.get(id)?.dispose();
+		this.searchAddons.delete(id);
 		this.onDataDisposables.get(id)?.dispose();
 		this.onDataDisposables.delete(id);
 		this.hosts.get(id)?.remove();
 		this.hosts.delete(id);
 		this.localEchos.delete(id);
 		this.tabs = this.tabs.filter((t) => t.id !== id);
+		// 若关闭的是搜索浮层正在作用的标签，浮层将指向失效实例，直接收起
+		if (this.searchActiveTabId === id) this.closeSearch();
 	}
 
 	private closeTab(id: string): void {
@@ -1278,7 +1327,190 @@ export class FolderTerminalView extends ItemView {
 		);
 		menu.addSeparator();
 		menu.addItem((i) => i.setTitle(t("term.clear")).setIcon("eraser").onClick(() => term?.clear()));
+		menu.addSeparator();
+		menu.addItem((i) =>
+			i.setTitle(t("term.search")).setIcon("search").onClick(() => this.showSearch()),
+		);
 		menu.showAtMouseEvent(evt);
+	}
+
+	// ---------- 内部：终端内搜索浮层 ----------
+
+	/**
+	 * 弹出终端内搜索浮层（Ctrl/Cmd+F 触发，或右键菜单「搜索」）。
+	 * 浮层为 per-view 单例，搜索目标锁定为当前激活标签的 SearchAddon。
+	 * 自带：输入框 / 上一处 / 下一处 / 关闭 / 匹配计数 / 大小写·正则·全字匹配 三个开关。
+	 */
+	showSearch(): void {
+		const tabId = this.activeTabId;
+		if (!tabId) return;
+		const addon = this.searchAddons.get(tabId);
+		if (!addon) return;
+		this.searchActiveTabId = tabId;
+
+		if (!this.searchOverlayEl) this.buildSearchOverlay();
+		const overlay = this.searchOverlayEl!;
+		this.bindSearchAddon();
+		overlay.removeClass("is-hidden");
+		this.applySearchTheme();
+		if (this.searchInputEl) {
+			this.searchInputEl.value = "";
+			this.searchInputEl.focus();
+			this.searchInputEl.select();
+		}
+		if (this.searchCountEl) this.searchCountEl.textContent = "";
+	}
+
+	/** 构建搜索浮层 DOM（只执行一次，后续复用）。 */
+	private buildSearchOverlay(): void {
+		const overlay = this.containerEl.createDiv({ cls: "ft-search-overlay is-hidden" });
+		const box = overlay.createDiv({ cls: "ft-search-box" });
+
+		const input = box.createEl("input", {
+			cls: "ft-search-input",
+			attr: { type: "text", placeholder: t("search.placeholder") },
+		});
+		const count = box.createSpan({ cls: "ft-search-count", text: "" });
+
+		const prev = box.createEl("button", {
+			cls: "ft-search-btn",
+			attr: { type: "button", title: t("search.prevTitle"), "aria-label": t("search.prevTitle") },
+			text: "↑",
+		});
+		const next = box.createEl("button", {
+			cls: "ft-search-btn",
+			attr: { type: "button", title: t("search.nextTitle"), "aria-label": t("search.nextTitle") },
+			text: "↓",
+		});
+		const close = box.createEl("button", {
+			cls: "ft-search-btn ft-search-close",
+			attr: { type: "button", title: t("search.closeTitle"), "aria-label": t("search.closeTitle") },
+			text: "×",
+		});
+
+		const opts = overlay.createDiv({ cls: "ft-search-options" });
+		const caseLbl = opts.createEl("label", { cls: "ft-search-opt" });
+		const caseChk = caseLbl.createEl("input", { attr: { type: "checkbox" } });
+		caseLbl.createSpan({ text: t("search.caseSensitive") });
+		const regexLbl = opts.createEl("label", { cls: "ft-search-opt" });
+		const regexChk = regexLbl.createEl("input", { attr: { type: "checkbox" } });
+		regexLbl.createSpan({ text: t("search.regex") });
+		const wordLbl = opts.createEl("label", { cls: "ft-search-opt" });
+		const wordChk = wordLbl.createEl("input", { attr: { type: "checkbox" } });
+		wordLbl.createSpan({ text: t("search.wholeWord") });
+
+		this.searchOverlayEl = overlay;
+		this.searchInputEl = input;
+		this.searchCountEl = count;
+		this.searchCaseEl = caseChk;
+		this.searchRegexEl = regexChk;
+		this.searchWordEl = wordChk;
+
+		let debounce: number | undefined;
+		input.addEventListener("input", () => {
+			window.clearTimeout(debounce);
+			debounce = window.setTimeout(() => this.runSearch(false), 200);
+		});
+		input.addEventListener("keydown", (evt) => {
+			evt.stopPropagation();
+			if (evt.key === "Enter") {
+				evt.preventDefault();
+				this.runSearch(evt.shiftKey ? true : false);
+			} else if (evt.key === "Escape") {
+				evt.preventDefault();
+				this.closeSearch();
+			}
+		});
+		prev.addEventListener("click", (e) => { e.stopPropagation(); this.runSearch(true); });
+		next.addEventListener("click", (e) => { e.stopPropagation(); this.runSearch(false); });
+		close.addEventListener("click", (e) => { e.stopPropagation(); this.closeSearch(); });
+		const onOptChange = (): void => {
+			this.activeSearchAddon()?.clearDecorations();
+			if (input.value) this.runSearch(false);
+		};
+		caseChk.addEventListener("change", onOptChange);
+		regexChk.addEventListener("change", onOptChange);
+		wordChk.addEventListener("change", onOptChange);
+		overlay.addEventListener("mousedown", (e) => e.stopPropagation());
+	}
+
+	/** 当前搜索目标标签的 SearchAddon（失效则收起浮层并返回 null）。 */
+	private activeSearchAddon(): SearchAddon | null {
+		const id = this.searchActiveTabId;
+		if (!id) return null;
+		const addon = this.searchAddons.get(id);
+		if (!addon) {
+			this.closeSearch();
+			return null;
+		}
+		return addon;
+	}
+
+	/** 订阅当前 addon 的结果计数回调（首次构建浮层或切 tab 后调用）。 */
+	private bindSearchAddon(): void {
+		this.searchResultsDispose?.();
+		this.searchResultsDispose = null;
+		const addon = this.activeSearchAddon();
+		if (!addon || !addon.onDidChangeResults) return;
+		const disposable = addon.onDidChangeResults(({ resultIndex, resultCount }) => {
+			if (!this.searchCountEl) return;
+			if (resultCount <= 0) {
+				this.searchCountEl.textContent = t("search.noResults");
+				return;
+			}
+			const cur = resultIndex >= 0 ? resultIndex + 1 : "?";
+			this.searchCountEl.textContent = `${cur}/${resultCount}`;
+		});
+		this.searchResultsDispose = () => disposable.dispose();
+	}
+
+	/**
+	 * 执行一次搜索。
+	 * @param backward true=上一处（findPrevious），false=下一处（findNext）
+	 */
+	private runSearch(backward: boolean): void {
+		const addon = this.activeSearchAddon();
+		if (!addon || !this.searchInputEl) return;
+		const term = this.searchInputEl.value;
+		if (!term) {
+			addon.clearDecorations();
+			if (this.searchCountEl) this.searchCountEl.textContent = "";
+			return;
+		}
+		const deco = this.isDarkTheme() ? SEARCH_DECO.dark : SEARCH_DECO.light;
+		const options = {
+			caseSensitive: this.searchCaseEl?.checked ?? false,
+			regex: this.searchRegexEl?.checked ?? false,
+			wholeWord: this.searchWordEl?.checked ?? false,
+			decorations: { ...deco },
+		};
+		addon.clearDecorations();
+		if (backward) addon.findPrevious(term, options);
+		else addon.findNext(term, options);
+	}
+
+	/** 关闭搜索浮层：隐藏、清空高亮、焦点还给终端。 */
+	closeSearch(): void {
+		this.searchOverlayEl?.addClass("is-hidden");
+		this.searchResultsDispose?.();
+		this.searchResultsDispose = null;
+		const id = this.searchActiveTabId;
+		if (id) this.searchAddons.get(id)?.clearDecorations();
+		this.searchActiveTabId = null;
+		if (this.activeTabId) this.focusTerminal(this.activeTabId);
+	}
+
+	/** 当前是否深色主题（按全局设置 + Obsidian body class 综合判定）。 */
+	private isDarkTheme(): boolean {
+		const settings = this.getSettings();
+		if (settings.colorScheme === "dark") return true;
+		if (settings.colorScheme === "light") return false;
+		return document.body.classList.contains("theme-dark");
+	}
+
+	/** 给浮层根节点打 data-theme，让 CSS 按深浅主题着色。 */
+	private applySearchTheme(): void {
+		this.searchOverlayEl?.setAttribute("data-theme", this.isDarkTheme() ? "dark" : "light");
 	}
 
 	/**
@@ -1292,8 +1524,15 @@ export class FolderTerminalView extends ItemView {
 	private onKeyDown(evt: KeyboardEvent): void {
 		const target = evt.target as HTMLElement | null;
 		if (target?.classList?.contains("ft-tab-rename")) return;
+		if (target?.classList?.contains("ft-search-input")) return;
 
 		const mod = evt.metaKey || evt.ctrlKey;
+		if (mod && evt.key.toLowerCase() === "f") {
+			evt.preventDefault();
+			evt.stopPropagation();
+			this.showSearch();
+			return;
+		}
 		if (mod && evt.key.toLowerCase() === "t") {
 			evt.preventDefault();
 			evt.stopPropagation();

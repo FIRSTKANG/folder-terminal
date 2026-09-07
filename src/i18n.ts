@@ -100,6 +100,17 @@ const zhCN: Dict = {
 	"term.copy": "复制",
 	"term.paste": "粘贴",
 	"term.clear": "清屏",
+	"term.search": "搜索…",
+
+	// ---------- 终端内搜索浮层 ----------
+	"search.placeholder": "在终端缓冲区中搜索…",
+	"search.prevTitle": "上一处（Shift+Enter）",
+	"search.nextTitle": "下一处（Enter）",
+	"search.closeTitle": "关闭搜索（Esc）",
+	"search.caseSensitive": "区分大小写",
+	"search.regex": "正则",
+	"search.wholeWord": "全字匹配",
+	"search.noResults": "无匹配",
 
 	// ---------- 空状态 ----------
 	"empty.hint": "点击左侧文件夹旁的终端图标打开会话，",
@@ -194,6 +205,17 @@ const en: Dict = {
 	"term.copy": "Copy",
 	"term.paste": "Paste",
 	"term.clear": "Clear screen",
+	"term.search": "Search…",
+
+	// ---------- In-terminal search overlay ----------
+	"search.placeholder": "Search terminal buffer…",
+	"search.prevTitle": "Previous match (Shift+Enter)",
+	"search.nextTitle": "Next match (Enter)",
+	"search.closeTitle": "Close search (Esc)",
+	"search.caseSensitive": "Case sensitive",
+	"search.regex": "Regex",
+	"search.wholeWord": "Whole word",
+	"search.noResults": "No match",
 
 	// ---------- Empty state ----------
 	"empty.hint": "Click the terminal icon next to a folder in the file explorer to open a session, ",

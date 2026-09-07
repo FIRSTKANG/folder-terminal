@@ -635,3 +635,119 @@
     position: relative;
 }
 
+/* ================= 终端内搜索浮层 ================= */
+/*
+ * 浮层挂在 .ft-terminal-view（containerEl）上，绝对定位于终端内容区右上角，
+ * 不随单个标签 host 的 hidden 切换而消失；z-index 高于 hosts(xterm)。
+ * 深浅主题通过根节点 data-theme="dark|light" 切换（由 JS 在 showSearch 时写入）。
+ */
+.ft-search-overlay {
+	position: absolute;
+	top: 76px;
+	right: 12px;
+	z-index: 30;
+	font-family: ui-sans-serif, -apple-system, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
+	font-size: 12px;
+	line-height: 1.4;
+	user-select: none;
+}
+.ft-search-overlay.is-hidden {
+	display: none;
+}
+
+.ft-search-box {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	padding: 4px 6px;
+	border-radius: 6px;
+	border: 1px solid;
+	box-shadow: 0 6px 20px rgba(0, 0, 0, 0.28);
+}
+.ft-search-input {
+	width: 184px;
+	border: none;
+	outline: none;
+	background: transparent;
+	font: inherit;
+	padding: 2px 4px;
+}
+.ft-search-count {
+	min-width: 44px;
+	text-align: center;
+	font-variant-numeric: tabular-nums;
+	opacity: 0.75;
+}
+.ft-search-btn {
+	border: none;
+	background: transparent;
+	cursor: pointer;
+	border-radius: 4px;
+	width: 22px;
+	height: 22px;
+	font-size: 13px;
+	line-height: 1;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+}
+.ft-search-options {
+	display: flex;
+	gap: 10px;
+	margin-top: 4px;
+	padding: 3px 8px;
+	border-radius: 6px;
+	border: 1px solid;
+	box-shadow: 0 6px 20px rgba(0, 0, 0, 0.28);
+}
+.ft-search-opt {
+	display: inline-flex;
+	align-items: center;
+	gap: 3px;
+	cursor: pointer;
+	white-space: nowrap;
+}
+.ft-search-opt input {
+	margin: 0;
+}
+
+/* 深色主题（GitHub 风格） */
+.ft-search-overlay[data-theme="dark"] .ft-search-box,
+.ft-search-overlay[data-theme="dark"] .ft-search-options {
+	background: #161b22;
+	border-color: #30363d;
+	color: #e6edf3;
+}
+.ft-search-overlay[data-theme="dark"] .ft-search-input {
+	color: #e6edf3;
+}
+.ft-search-overlay[data-theme="dark"] .ft-search-input::placeholder {
+	color: #6e7681;
+}
+.ft-search-overlay[data-theme="dark"] .ft-search-btn {
+	color: #e6edf3;
+}
+.ft-search-overlay[data-theme="dark"] .ft-search-btn:hover {
+	background: #30363d;
+}
+
+/* 浅色主题（GitHub 风格） */
+.ft-search-overlay[data-theme="light"] .ft-search-box,
+.ft-search-overlay[data-theme="light"] .ft-search-options {
+	background: #ffffff;
+	border-color: #d0d7de;
+	color: #1f2328;
+}
+.ft-search-overlay[data-theme="light"] .ft-search-input {
+	color: #1f2328;
+}
+.ft-search-overlay[data-theme="light"] .ft-search-input::placeholder {
+	color: #8c959f;
+}
+.ft-search-overlay[data-theme="light"] .ft-search-btn {
+	color: #1f2328;
+}
+.ft-search-overlay[data-theme="light"] .ft-search-btn:hover {
+	background: #eaeef2;
+}
+

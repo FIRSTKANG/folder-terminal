@@ -1589,9 +1589,14 @@ export class FolderTerminalView extends ItemView {
 			wholeWord: this.searchWordEl?.checked ?? false,
 			decorations: { ...deco },
 		};
-		addon.clearDecorations();
-		if (backward) addon.findPrevious(term, options);
-		else addon.findNext(term, options);
+		// 不要重复调用 clearDecorations！
+		// SearchAddon 内部会维护搜索结果，重复清除会丢失上次位置导致无法连续跳转
+		let found: boolean;
+		if (backward) {
+			found = addon.findPrevious(term, options);
+		} else {
+			found = addon.findNext(term, options);
+		}
 	}
 
 	/** 关闭搜索浮层：隐藏、清空高亮、焦点还给终端。 */

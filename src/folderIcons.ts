@@ -1,7 +1,11 @@
-import { App, setIcon } from "obsidian";
+import { App, Notice, setIcon, TFolder } from "obsidian";
 import { t } from "./i18n";
+import { toAbsPath, revealInFileManager } from "./shellUtils";
 
 export type OpenHandler = (folderPath: string) => void;
+
+/** 文件夹行辅助动作类型 */
+type FolderAction = "reveal" | "path" | "abspath";
 
 /**
  * 兼容多个 Obsidian 版本的文件浏览器 DOM 结构。
@@ -40,7 +44,9 @@ export class FolderIconManager {
 	stop(): void {
 		this.observer?.disconnect();
 		this.observer = null;
-		this.container?.querySelectorAll(".ft-terminal-icon").forEach((el) => el.remove());
+		this.container?.querySelectorAll(".ft-terminal-icon, .ft-folder-actions").forEach((el) =>
+			el.remove(),
+		);
 		this.container = null;
 	}
 
@@ -82,10 +88,12 @@ export class FolderIconManager {
 		if (isFile || !isFolder) return;
 
 		// 同一行只注入一次（多选择器可能重复命中）
-		if (row.querySelector(".ft-terminal-icon")) return;
+		if (row.querySelector(".ft-terminal-icon") || row.querySelector(".ft-folder-actions"))
+			return;
 
 		const path = this.resolveFolderPath(el, row);
 
+		// 1. 注入「在此打开终端」主图标
 		const btn = el.createEl("button", {
 			cls: "ft-terminal-icon",
 			attr: {
@@ -103,6 +111,33 @@ export class FolderIconManager {
 			this.onOpen(path);
 		});
 		el.appendChild(btn);
+
+		// 2. 注入 reveal/path/abspath 三个辅助动作（放在终端图标左侧）
+		const group = el.createEl("div", { cls: "ft-folder-actions" });
+		const actions: { action: FolderAction; icon: string; labelKey: string }[] = [
+			{ action: "reveal", icon: "folder-open", labelKey: "icon.revealInFinder" },
+			{ action: "path", icon: "route", labelKey: "icon.copyWikiPath" },
+			{ action: "abspath", icon: "link", labelKey: "icon.copyAbsPath" },
+		];
+		for (const { action, icon, labelKey } of actions) {
+			const label = t(labelKey);
+			const btnAction = group.createEl("button", {
+				cls: "ft-copy-icon",
+				attr: {
+					type: "button",
+					"data-action": action,
+					"aria-label": label,
+				},
+			});
+			setIcon(btnAction, icon);
+			btnAction.addEventListener("click", (evt) => {
+				evt.stopPropagation();
+				evt.preventDefault();
+				btnAction.blur();
+				void this.handleAction(path, action);
+			});
+		}
+		el.appendChild(group);
 	}
 
 	/**
@@ -139,5 +174,42 @@ export class FolderIconManager {
 			console.error("[Folder Terminal] 反查文件夹路径失败:", err);
 		}
 		return "";
+	}
+
+	/**
+	 * 处理文件夹行的辅助动作：
+	 * - path：复制相对库根的路径（文件夹本身无扩展名，直接复制 folder.path）
+	 * - abspath：复制磁盘上的绝对路径（库根时为库根绝对路径，无尾部斜杠）
+	 * - reveal：在系统的文件管理器中展示该文件夹
+	 */
+	private async handleAction(path: string, action: FolderAction): Promise<void> {
+		const folder = path
+			? this.app.vault.getAbstractFileByPath(path)
+			: this.app.vault.getRoot();
+		if (!(folder instanceof TFolder)) {
+			new Notice(t("copy.folderNotFound"));
+			return;
+		}
+		try {
+			switch (action) {
+				case "path":
+					await navigator.clipboard.writeText(folder.path);
+					break;
+				case "abspath":
+					await navigator.clipboard.writeText(toAbsPath(this.app, folder.path));
+					break;
+				case "reveal": {
+					const abs = toAbsPath(this.app, folder.path);
+					// Linux 的 xdg-open 只能打开目录：文件夹本身即目录，直接打开自身
+					await revealInFileManager(abs, abs);
+					new Notice(t("copy.revealed"));
+					return;
+				}
+			}
+			new Notice(t("copy.copied"));
+		} catch (err) {
+			console.error("[Folder Terminal] 文件夹操作失败:", err);
+			new Notice(t("copy.failed"));
+		}
 	}
 }

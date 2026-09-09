@@ -53,14 +53,42 @@
 .nav-folder-title:hover > .ft-terminal-icon:not(:hover),
 .tree-item-self:hover > .ft-copy-icons .ft-copy-icon:not(:hover),
 .nav-file-title:hover > .ft-copy-icons .ft-copy-icon:not(:hover),
+.tree-item-self:hover > .ft-folder-actions .ft-copy-icon:not(:hover),
+.nav-folder-title:hover > .ft-folder-actions .ft-copy-icon:not(:hover),
 .ft-copy-icons:focus-within .ft-copy-icon:not(:hover) {
 	color: var(--ft-terminal-icon-color, var(--text-muted));
 	color: color-mix(in srgb, var(--ft-terminal-icon-color, var(--text-muted)) 75%, var(--background-primary));
 }
 
 /* 重命名文件夹时隐藏图标，避免挡住输入框 */
-.tree-item.is-being-renamed .ft-terminal-icon {
+.tree-item.is-being-renamed .ft-terminal-icon,
+.tree-item.is-being-renamed .ft-folder-actions {
 	display: none;
+}
+
+/* ================= 文件夹行上的辅助动作图标（reveal / path / abspath） ================= */
+
+/* 与「文件复制图标组」同构的横向容器，定位在右端「终端」图标(20px)左侧留出 26px 空隙 */
+.ft-folder-actions {
+	position: absolute;
+	right: 26px;
+	top: 50%;
+	transform: translateY(-50%);
+	display: inline-flex;
+	align-items: center;
+	gap: 1px;
+	z-index: 20;
+	opacity: 0;
+	pointer-events: none;
+	transition: opacity 0.1s ease;
+}
+
+/* 仅当悬停「这一行自身」时才显示该行的文件夹动作组 */
+.tree-item-self:hover > .ft-folder-actions,
+.nav-folder-title:hover > .ft-folder-actions,
+.ft-folder-actions:focus-within {
+	opacity: 1;
+	pointer-events: auto;
 }
 
 /* ================= 文件行上的复制图标 ================= */

@@ -140,6 +140,7 @@ const zhCN: Dict = {
 	"copy.copied": "已复制",
 	"copy.failed": "复制失败",
 	"copy.fileNotFound": "文件不存在",
+	"copy.folderNotFound": "目录不存在",
 	"copy.revealed": "已在文件管理器中展示",
 };
 
@@ -262,6 +263,7 @@ const en: Dict = {
 	"copy.copied": "Copied",
 	"copy.failed": "Copy failed",
 	"copy.fileNotFound": "File not found",
+	"copy.folderNotFound": "Folder not found",
 	"copy.revealed": "Revealed in file manager",
 };
 

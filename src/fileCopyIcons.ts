@@ -1,5 +1,6 @@
 import { App, FileSystemAdapter, Notice, setIcon, TFile } from "obsidian";
 import { t } from "./i18n";
+import { toAbsPath, revealInFileManager } from "./shellUtils";
 
 /** 复制动作类型 */
 type CopyAction = "title" | "path" | "content" | "file" | "abspath" | "reveal";
@@ -175,21 +176,23 @@ export class FileCopyIconManager {
 				case "content":
 					await navigator.clipboard.writeText(await this.app.vault.read(file));
 					break;
-				case "abspath": {
-					const adapter = this.app.vault.adapter;
-					const absPath =
-						adapter instanceof FileSystemAdapter ? `${adapter.getBasePath()}/${file.path}` : file.path;
-					await navigator.clipboard.writeText(absPath);
+				case "abspath":
+					await navigator.clipboard.writeText(toAbsPath(this.app, file.path));
 					break;
-				}
 				case "file":
 					await this.copyFileToOs(file.path);
 					break;
-				case "reveal":
-					await this.revealInFinder(file.path);
+				case "reveal": {
+					const abs = toAbsPath(this.app, file.path);
+					// Linux 的 xdg-open 只能打开目录：文件在子目录则开其所在目录，否则开库根
+					const dir = file.path.includes("/")
+						? abs.slice(0, abs.lastIndexOf("/"))
+						: abs;
+					await revealInFileManager(abs, dir);
 					new Notice(t("copy.revealed"));
 					return;
 				}
+			}
 			new Notice(t("copy.copied"));
 		} catch (err) {
 			console.error("[Folder Terminal] 复制到剪贴板失败:", err);
@@ -237,52 +240,11 @@ export class FileCopyIconManager {
 	}
 
 	/**
-	 * 在系统的文件管理器中展示文件并选中它。
-	 * 用 child_process 调系统命令（本插件渲染进程已依赖 Node 子进程）：
-	 * - macOS/Linux 用 `open -R` 在 Finder 中定位并选中文件
-	 * - Windows 用 `explorer /select,` 定位并选中文件
-	 * 通过 execFile（不经 shell、参数数组直传）避免命令注入。
+	 * 把文本转成剪贴板需要的二进制缓冲。
+	 * Electron 的 clipboard.write custom 要求真正的 Node Buffer（而非 Uint8Array），
+	 * 否则会被静默忽略。优先取全局 Buffer，或经 window.require("buffer") 获取，
+	 * 兜底才用 Web TextEncoder。
 	 */
-	private async revealInFinder(relPath: string): Promise<void> {
-		const adapter = this.app.vault.adapter;
-		if (!(adapter instanceof FileSystemAdapter)) {
-			throw new Error("非桌面端不支持在系统文件管理器中展示");
-		}
-		const absPath = `${adapter.getBasePath()}/${relPath}`;
-		const win = window as unknown as {
-			require?: (mod: string) => unknown;
-			process?: { platform: string };
-		};
-		const requireFn = win.require;
-		const platform = win.process?.platform;
-		if (!requireFn || !platform) throw new Error("当前环境不支持在系统文件管理器中展示");
-
-		const proc = requireFn("child_process") as {
-			execFile?: (cmd: string, args: string[], cb: (err: NodeJS.ErrnoException | null) => void) => void;
-		};
-		const execFile = proc.execFile;
-		if (!execFile) throw new Error("child_process.execFile 不可用");
-
-		return new Promise<void>((resolve, reject) => {
-			try {
-				if (platform === "darwin") {
-					execFile("open", ["-R", absPath], (err) => (err ? reject(err) : resolve()));
-				} else if (platform === "win32") {
-					execFile("explorer", [`/select,${absPath}`], (err) => (err ? reject(err) : resolve()));
-				} else {
-					// Linux 无「选中」命令，退而打开文件所在目录
-					const dir = relPath.includes("/")
-						? absPath.slice(0, absPath.lastIndexOf("/"))
-						: absPath;
-					execFile("xdg-open", [dir], (err) => (err ? reject(err) : resolve()));
-				}
-			} catch (err) {
-				reject(err);
-			}
-		});
-	}
-
-	/** 获取 Electron clipboard；插件运行在 renderer，通过 window.require 访问 */
 	private getElectronClipboard(): {
 		clipboard: { write: (data: Record<string, unknown>) => void };
 	} | null {

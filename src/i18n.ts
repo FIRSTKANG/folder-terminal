@@ -48,6 +48,11 @@ const zhCN: Dict = {
 	"settings.initCommand.desc": "新建终端标签时自动执行（如 git status、npm run dev、conda activate base）；留空不执行。每个标签可在「标签设置」单独覆盖",
 	"settings.initCommand.placeholder": "如 git status",
 
+	// ---------- 文件树图标颜色设置 ----------
+	"settings.iconColor.name": "文件树图标颜色",
+	"settings.iconColor.desc": "自定义文件浏览器中「终端」与「复制」图标的颜色；点击右侧重置按钮恢复跟随主题",
+	"settings.iconColor.reset": "恢复为跟随主题",
+
 	// ---------- 标签设置弹窗 ----------
 	"modal.title": "标签设置 · {title}",
 	"modal.customLabel": "自定义此标签",
@@ -118,12 +123,24 @@ const zhCN: Dict = {
 
 	// ---------- 文件浏览器图标 ----------
 	"icon.openHere": "在此文件夹打开终端",
+	"icon.copyTitle": "复制标题",
+	"icon.copyWikiPath": "复制 Wiki 文件路径",
+	"icon.copyContent": "复制内容",
+	"icon.copyAbsPath": "复制 Wiki 绝对路径",
+	"icon.copyFile": "复制文件",
+	"icon.revealInFinder": "在 Finder / 资源管理器中展示",
 
 	// ---------- pty 回退提示（终端内可见） ----------
 	"pty.spawnFailed": "启动失败: ",
 	"pty.cwdMissing": "工作目录不存在: ",
 	"pty.fallbackScript": "未找到 python3，已回退到 script 模式（尺寸同步降级）",
 	"pty.installXcode": "未找到 python3：请安装 Xcode Command Line Tools（xcode-select --install）后重试",
+
+	// ---------- 复制操作反馈 ----------
+	"copy.copied": "已复制",
+	"copy.failed": "复制失败",
+	"copy.fileNotFound": "文件不存在",
+	"copy.revealed": "已在文件管理器中展示",
 };
 
 const en: Dict = {
@@ -152,6 +169,11 @@ const en: Dict = {
 	"settings.initCommand.name": "Default startup command",
 	"settings.initCommand.desc": "Auto-run when a new terminal tab opens (e.g. git status, npm run dev, conda activate base); leave empty to skip. Each tab can override this in \"Tab settings\"",
 	"settings.initCommand.placeholder": "e.g. git status",
+
+	// ---------- File-tree icon color setting ----------
+	"settings.iconColor.name": "File-tree icon color",
+	"settings.iconColor.desc": "Custom color for the \"terminal\" and \"copy\" icons in the file explorer; click the reset button on the right to follow the theme again",
+	"settings.iconColor.reset": "Revert to follow theme",
 
 	// ---------- Tab settings modal ----------
 	"modal.title": "Tab settings · {title}",
@@ -223,12 +245,24 @@ const en: Dict = {
 
 	// ---------- File-explorer icon ----------
 	"icon.openHere": "Open terminal in this folder",
+	"icon.copyTitle": "Copy title",
+	"icon.copyWikiPath": "Copy wiki file path",
+	"icon.copyContent": "Copy content",
+	"icon.copyAbsPath": "Copy wiki absolute path",
+	"icon.copyFile": "Copy file",
+	"icon.revealInFinder": "Reveal in Finder / Explorer",
 
 	// ---------- pty fallback hints (visible in terminal) ----------
 	"pty.spawnFailed": "Failed to start: ",
 	"pty.cwdMissing": "Working directory does not exist: ",
 	"pty.fallbackScript": "python3 not found, fell back to script mode (size sync degraded)",
 	"pty.installXcode": "python3 not found: install Xcode Command Line Tools (xcode-select --install) and retry",
+
+	// ---------- Copy feedback ----------
+	"copy.copied": "Copied",
+	"copy.failed": "Copy failed",
+	"copy.fileNotFound": "File not found",
+	"copy.revealed": "Revealed in file manager",
 };
 
 const dicts: Record<Locale, Dict> = { "zh-CN": zhCN, "en": en };

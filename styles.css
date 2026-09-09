@@ -21,28 +21,117 @@
 	border: none;
 	border-radius: var(--radius-s, 4px);
 	background: transparent;
-	color: var(--text-muted);
+	color: var(--ft-terminal-icon-color, var(--text-muted));
 	opacity: 0;
 	pointer-events: none; /* 隐藏时不可点击，避免误触 */
 	cursor: pointer;
 	user-select: none;
 	z-index: 1;
-	transition: opacity 0.1s ease, background-color 0.1s ease, color 0.1s ease;
+	transition: opacity 0.1s ease, background-color 0.1s ease, color 0.1s ease, filter 0.1s ease;
 }
 
-.tree-item:hover .ft-terminal-icon,
+/* 仅当悬停「这一行自身」时才显示该行的终端图标，
+   避免 hover 嵌套目录的祖先行时点亮所有后代的图标 */
+.tree-item-self:hover > .ft-terminal-icon,
+.nav-folder-title:hover > .ft-terminal-icon,
 .ft-terminal-icon:focus-visible {
 	opacity: 1;
 	pointer-events: auto;
 }
 
+/* hover 弹起强调：图标以完整设置色呈现，并稍加深饱和度增强可点击反馈 */
 .ft-terminal-icon:hover {
-	color: var(--text-normal);
+	color: var(--ft-terminal-icon-color, var(--text-normal));
 	background-color: var(--background-modifier-hover);
+	filter: brightness(0.96) saturate(1.1);
+}
+
+/* 两级 hover：悬停文件行使图标浮现时，尚未移到图标本体 → 用浅化的设置色（混主题背景约 50%）；
+   移到图标本体后则可被上方 .ft-*-icon:hover 提升为完整设置色并加深」
+   未设置颜色时该规则回落到主题 muted 色，行为不变 */
+.tree-item-self:hover > .ft-terminal-icon:not(:hover),
+.nav-folder-title:hover > .ft-terminal-icon:not(:hover),
+.tree-item-self:hover > .ft-copy-icons .ft-copy-icon:not(:hover),
+.nav-file-title:hover > .ft-copy-icons .ft-copy-icon:not(:hover),
+.ft-copy-icons:focus-within .ft-copy-icon:not(:hover) {
+	color: var(--ft-terminal-icon-color, var(--text-muted));
+	color: color-mix(in srgb, var(--ft-terminal-icon-color, var(--text-muted)) 75%, var(--background-primary));
 }
 
 /* 重命名文件夹时隐藏图标，避免挡住输入框 */
 .tree-item.is-being-renamed .ft-terminal-icon {
+	display: none;
+}
+
+/* ================= 文件行上的复制图标 ================= */
+
+/* 让绝对定位的图标容器以文件行为参照 */
+.tree-item.nav-file > .nav-file-title,
+.tree-item.nav-file > .tree-item-self,
+.tree-item-self.is-file {
+	position: relative;
+}
+
+/* 一组复制图标（标题 / Wiki 路径 / 内容 / 绝对路径 / 文件）横向排列，悬停时一起淡入。
+   与单个「终端」图标保持同一定位规则：right:4px + 垂直居中；靠 z-index 浮在行上层防遮挡 */
+.ft-copy-icons {
+	position: absolute;
+	right: 4px;
+	top: 50%;
+	transform: translateY(-50%);
+	display: inline-flex;
+	align-items: center;
+	gap: 1px;
+	z-index: 20;
+	opacity: 0;
+	pointer-events: none;
+	transition: opacity 0.1s ease;
+}
+
+/* 仅当悬停「这一行自身」时才显示该行的复制图标组（详见 .ft-terminal-icon 注释） */
+.tree-item-self:hover > .ft-copy-icons,
+.nav-file-title:hover > .ft-copy-icons,
+.ft-copy-icons:focus-within {
+	opacity: 1;
+	pointer-events: auto;
+}
+
+/* 与 .ft-terminal-icon 保持完全一致的尺寸与悬停样式 */
+.ft-copy-icon {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 20px;
+	height: 20px;
+	padding: 2px;
+	border: none;
+	border-radius: var(--radius-s, 4px);
+	background: transparent;
+	color: var(--ft-terminal-icon-color, var(--text-muted));
+	cursor: pointer;
+	user-select: none;
+	transition: opacity 0.1s ease, background-color 0.1s ease, color 0.1s ease, filter 0.1s ease;
+}
+
+.ft-copy-icon:hover {
+	color: var(--ft-terminal-icon-color, var(--text-normal));
+	background-color: var(--background-modifier-hover);
+	filter: brightness(0.96) saturate(1.1);
+}
+
+/* 统一约束 setIcon 生成的 SVG 为按钮内容区尺寸（20 - 2*2 = 16px），
+   消除不同 Obsidian 版本 .svg-icon 默认尺寸差异导致的图标大小不一致。
+   顺带在 svg 作用域重定义 --icon-color：用户设置文件树图标颜色（--ft-terminal-icon-color）
+   时让 Obsidian 图标本体变色；未设置则回退到 Obsidian 默认图标色（跟随主题） */
+.ft-terminal-icon svg,
+.ft-copy-icon svg {
+	--icon-color: var(--ft-terminal-icon-color, var(--icon-color));
+	width: 16px;
+	height: 16px;
+}
+
+/* 重命名文件时隐藏复制图标，避免挡住输入框 */
+.tree-item.is-being-renamed .ft-copy-icons {
 	display: none;
 }
 

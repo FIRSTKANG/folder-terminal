@@ -1,6 +1,7 @@
 import { FileSystemAdapter, Plugin, TFolder, WorkspaceLeaf, getLanguage } from "obsidian";
 
 declare const BUILD_STAMP: string;
+import { FileCopyIconManager } from "./fileCopyIcons";
 import { FolderIconManager } from "./folderIcons";
 import {
 	DEFAULT_SETTINGS,
@@ -26,6 +27,7 @@ import { t, setLocale, resolveLocale } from "./i18n";
 export default class FolderTerminalPlugin extends Plugin {
 	settings: FolderTerminalSettings = DEFAULT_SETTINGS;
 	private icons: FolderIconManager | null = null;
+	private copyIcons: FileCopyIconManager | null = null;
 	private lastLeaf: WorkspaceLeaf | null = null;
 
 	async onload(): Promise<void> {
@@ -65,8 +67,17 @@ export default class FolderTerminalPlugin extends Plugin {
 		};
 		this.icons.start();
 
+		// 在文件浏览器里注入文件行复制图标
+		this.copyIcons = new FileCopyIconManager(this.app);
+		this.copyIcons.start();
+		// 应用已保存的文件树图标颜色（终端 + 复制图标）
+		this.setTerminalIconColor(this.settings.terminalIconColor ?? "");
+
 		// 布局变化（重新打开文件浏览器 / 切换工作区）后重新挂载图标
-		this.registerEvent(this.app.workspace.on("layout-change", () => this.icons?.start()));
+		this.registerEvent(this.app.workspace.on("layout-change", () => {
+			this.icons?.start();
+			this.copyIcons?.start();
+		}));
 
 		// 文件浏览器右键菜单：在终端中打开（文件夹直接打开；文件取其所在目录）
 		this.registerEvent(
@@ -128,12 +139,28 @@ export default class FolderTerminalPlugin extends Plugin {
 	onunload(): void {
 		this.icons?.stop();
 		this.icons = null;
+		this.copyIcons?.stop();
+		this.copyIcons = null;
 		document.getElementById("ft-xterm-css")?.remove();
 		this.app.workspace.getLeavesOfType(TERMINAL_VIEW_TYPE).forEach((leaf) => leaf.detach());
 	}
 
 	async saveSettings(): Promise<void> {
 		await this.saveData(this.settings);
+	}
+
+	/**
+	 * 应用文件树图标颜色（同时作用于「终端」与「复制」图标组）。
+	 * 通过全局 CSS 变量 --ft-terminal-icon-color 下发到渲染；传入空字符串则移除该变量，
+	 * 让图标回退跟随 Obsidian 主题（--icon-color）。
+	 */
+	setTerminalIconColor(color: string): void {
+		const root = document.documentElement.style;
+		if (color.trim()) {
+			root.setProperty("--ft-terminal-icon-color", color.trim());
+		} else {
+			root.removeProperty("--ft-terminal-icon-color");
+		}
 	}
 
 	/** 库在磁盘上的绝对路径（桌面端）。 */

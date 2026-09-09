@@ -90,7 +90,6 @@ export class FolderIconManager {
 			cls: "ft-terminal-icon",
 			attr: {
 				type: "button",
-				title: t("icon.openHere"),
 				"aria-label": t("icon.openHere"),
 			},
 		});
@@ -99,6 +98,8 @@ export class FolderIconManager {
 			// 阻止冒泡，避免触发展开/收起文件夹
 			evt.stopPropagation();
 			evt.preventDefault();
+			// 点击后释放焦点，避免 :focus-visible 让该行图标常驻、与悬停的其他行图标同时出现
+			btn.blur();
 			this.onOpen(path);
 		});
 		el.appendChild(btn);

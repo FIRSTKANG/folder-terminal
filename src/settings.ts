@@ -17,6 +17,26 @@ import type FolderTerminalPlugin from "./main";
 import type { TerminalTab } from "./terminalView";
 import { t, setLocale, resolveLocale, type LanguageSetting } from "./i18n";
 
+/**
+ * 未自定义颜色时，取色器的默认展示色取当前主题的图标色（--icon-color），
+ * 让取色器与「跟随主题」保持一致，而不是硬编码一个突兀的默认值。
+ * 主题色可能是 rgb() 或 #hex，统一转成 input[type=color] 需要的 #rrggbb；解析失败回退中性灰。
+ */
+function themeIconColorFallback(): string {
+	try {
+		const css = getComputedStyle(document.documentElement).getPropertyValue("--icon-color").trim();
+		const rgb = /^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/.exec(css);
+		if (rgb) {
+			const toHex = (n: number) => n.toString(16).padStart(2, "0");
+			return `#${toHex(+rgb[1])}${toHex(+rgb[2])}${toHex(+rgb[3])}`;
+		}
+		if (/^#[0-9a-fA-F]{6}$/.test(css)) return css.toLowerCase();
+	} catch (err) {
+		console.warn("[Folder Terminal] 读取主题图标色失败:", err);
+	}
+	return "#8a8a8a";
+}
+
 /** 单个文件夹路径记忆的标签自定义设置（关掉再重开同一文件夹也能恢复） */
 export interface PathTabOverrides {
 	label?: string;
@@ -58,6 +78,8 @@ export interface FolderTerminalSettings {
 	 * 以旧路径为前缀的 key 整体重映射到新路径，记忆不会因路径调整而丢失。
 	 */
 	tabSettingsByPath?: Record<string, PathTabOverrides>;
+	/** 文件树图标颜色（十六进制）；同时作用于「终端」与「复制」图标组；留空 = 跟随主题 */
+	terminalIconColor?: string;
 }
 
 export const DEFAULT_SETTINGS: FolderTerminalSettings = {
@@ -171,16 +193,43 @@ export class FolderTerminalSettingTab extends PluginSettingTab {
 
 		// ── 6) 默认启动命令 ──────────────────────────────────────────────────
 		new Setting(containerEl)
-			.setName(t("settings.initCommand.name"))
-			.setDesc(t("settings.initCommand.desc"))
-			.addText((cb) =>
-				cb
-					.setPlaceholder(t("settings.initCommand.placeholder"))
-					.setValue(this.plugin.settings.initCommand ?? "")
-					.onChange(async (v) => {
-						this.plugin.settings.initCommand = v.trim();
-						await this.plugin.saveSettings();
-					}),
-			);
+				.setName(t("settings.initCommand.name"))
+				.setDesc(t("settings.initCommand.desc"))
+				.addText((cb) =>
+					cb
+						.setPlaceholder(t("settings.initCommand.placeholder"))
+						.setValue(this.plugin.settings.initCommand ?? "")
+						.onChange(async (v) => {
+							this.plugin.settings.initCommand = v.trim();
+							await this.plugin.saveSettings();
+						}),
+				);
+
+			// ── 7) 文件树图标颜色 ─────────────────────────────────────────────
+			new Setting(containerEl)
+				.setName(t("settings.iconColor.name"))
+				.setDesc(t("settings.iconColor.desc"))
+				.addColorPicker((cb) =>
+					cb
+						.setValue(this.plugin.settings.terminalIconColor ?? themeIconColorFallback())
+						.onChange(async (v) => {
+							// 用户主动取色 → 视为自定义颜色即时生效
+							this.plugin.settings.terminalIconColor = v;
+							await this.plugin.saveSettings();
+							this.plugin.setTerminalIconColor(v);
+						}),
+				)
+				.addExtraButton((btn) =>
+					btn
+						.setIcon("reset")
+						.setTooltip(t("settings.iconColor.reset"))
+						.onClick(async () => {
+							this.plugin.settings.terminalIconColor = undefined;
+							await this.plugin.saveSettings();
+							this.plugin.setTerminalIconColor("");
+							// 重建整 tab 让取色器回退到默认色
+							this.display();
+						}),
+				);
 	}
 }

@@ -170,8 +170,8 @@ export class FileCopyIconManager {
 					await navigator.clipboard.writeText(file.basename);
 					break;
 				case "path":
-					// wiki/ideas/xxx → wiki/ideas/xxx（去掉扩展名）
-					await navigator.clipboard.writeText(file.path.slice(0, -file.extension.length - (file.extension ? 1 : 0)));
+					// 文件系统相对路径，保留原始扩展名（如 wiki/ideas/xxx.md）
+					await navigator.clipboard.writeText(file.path);
 					break;
 				case "content":
 					await navigator.clipboard.writeText(await this.app.vault.read(file));

@@ -21,8 +21,8 @@ const FILE_SELECTORS = [
 const ACTIONS: { action: CopyAction; icon: string; labelKey: string }[] = [
 	{ action: "reveal", icon: "folder-open", labelKey: "icon.revealInFinder" },
 	{ action: "path", icon: "route", labelKey: "icon.copyWikiPath" },
-	{ action: "abspath", icon: "link", labelKey: "icon.copyAbsPath" },
-	{ action: "title", icon: "heading", labelKey: "icon.copyTitle" },
+	{ action: "abspath", icon: "map-pin", labelKey: "icon.copyAbsPath" },
+	{ action: "title", icon: "file-text", labelKey: "icon.copyTitle" },
 	{ action: "content", icon: "copy", labelKey: "icon.copyContent" },
 	{ action: "file", icon: "files", labelKey: "icon.copyFile" },
 ];

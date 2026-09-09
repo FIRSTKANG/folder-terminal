@@ -123,7 +123,7 @@ const zhCN: Dict = {
 
 	// ---------- 文件浏览器图标 ----------
 	"icon.openHere": "在此文件夹打开终端",
-	"icon.copyTitle": "复制标题",
+	"icon.copyTitle": "复制文件名",
 	"icon.copyWikiPath": "复制文件路径",
 	"icon.copyContent": "复制内容",
 	"icon.copyAbsPath": "复制 Wiki 绝对路径",
@@ -246,7 +246,7 @@ const en: Dict = {
 
 	// ---------- File-explorer icon ----------
 	"icon.openHere": "Open terminal in this folder",
-	"icon.copyTitle": "Copy title",
+	"icon.copyTitle": "Copy file name",
 	"icon.copyWikiPath": "Copy file path",
 	"icon.copyContent": "Copy content",
 	"icon.copyAbsPath": "Copy wiki absolute path",

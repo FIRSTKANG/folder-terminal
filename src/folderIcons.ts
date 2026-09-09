@@ -117,7 +117,7 @@ export class FolderIconManager {
 		const actions: { action: FolderAction; icon: string; labelKey: string }[] = [
 			{ action: "reveal", icon: "folder-open", labelKey: "icon.revealInFinder" },
 			{ action: "path", icon: "route", labelKey: "icon.copyWikiPath" },
-			{ action: "abspath", icon: "link", labelKey: "icon.copyAbsPath" },
+			{ action: "abspath", icon: "map-pin", labelKey: "icon.copyAbsPath" },
 		];
 		for (const { action, icon, labelKey } of actions) {
 			const label = t(labelKey);

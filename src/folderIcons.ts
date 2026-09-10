@@ -1,4 +1,4 @@
-import { App, Notice, setIcon, TFolder } from "obsidian";
+import { App, Notice, setIcon } from "obsidian";
 import { t } from "./i18n";
 import { toAbsPath, revealInFileManager } from "./shellUtils";
 
@@ -177,29 +177,24 @@ export class FolderIconManager {
 	}
 
 	/**
-	 * 处理文件夹行的辅助动作：
-	 * - path：复制相对库根的路径（文件夹本身无扩展名，直接复制 folder.path）
-	 * - abspath：复制磁盘上的绝对路径（库根时为库根绝对路径，无尾部斜杠）
-	 * - reveal：在系统的文件管理器中展示该文件夹
+	 * 处理文件夹行的辅助动作。
+	 *
+	 * 关键：直接用文件树上解析出的 path，不依赖 vault.getAbstractFileByPath 反查。
+	 * 因为手动新建的目录在文件树 DOM 已渲染、但 vault 抽象文件映射尚未同步时，
+	 * 反查会拿不到对象而误报「目录不存在」。path 为空串即库根文件夹。
 	 */
 	private async handleAction(path: string, action: FolderAction): Promise<void> {
-		const folder = path
-			? this.app.vault.getAbstractFileByPath(path)
-			: this.app.vault.getRoot();
-		if (!(folder instanceof TFolder)) {
-			new Notice(t("copy.folderNotFound"));
-			return;
-		}
 		try {
 			switch (action) {
 				case "path":
-					await navigator.clipboard.writeText(folder.path);
+					// 库根（path 为空串）的相对路径即空字符串，直接复制
+					await navigator.clipboard.writeText(path);
 					break;
 				case "abspath":
-					await navigator.clipboard.writeText(toAbsPath(this.app, folder.path));
+					await navigator.clipboard.writeText(toAbsPath(this.app, path));
 					break;
 				case "reveal": {
-					const abs = toAbsPath(this.app, folder.path);
+					const abs = toAbsPath(this.app, path);
 					// Linux 的 xdg-open 只能打开目录：文件夹本身即目录，直接打开自身
 					await revealInFileManager(abs, abs);
 					new Notice(t("copy.revealed"));

@@ -99,8 +99,6 @@ export class FileCopyIconManager {
 
 		if (row.querySelector(".ft-copy-icons")) return;
 
-		const path = this.resolveFilePath(el, row);
-
 		const group = el.createEl("div", { cls: "ft-copy-icons" });
 		for (const { action, icon, labelKey } of ACTIONS) {
 			// 「复制文件」到系统剪贴板的通道在 Obsidian 渲染沙盒下不可用，暂时屏蔽该图标，
@@ -121,40 +119,49 @@ export class FileCopyIconManager {
 				evt.preventDefault();
 				// 点击后释放焦点，避免 :focus-within 让该行图标常驻、与悬停的其他行图标同时出现
 				btn.blur();
-				void this.copyFile(path, action);
+				// 点击时重新解析路径：新文件默认名「未命名」，重命名后 DOM 节点不重建，
+				// 注入时固化的 path 会过期（如复制到旧路径「未命名.md」）
+				void this.copyFile(this.resolveFilePath(el, row), action);
 			});
 		}
 		el.appendChild(group);
 	}
 
 	/**
-	 * 解析文件相对库根的路径，逻辑与 FolderIconManager.resolveFolderPath 一致。
+	 * 解析文件相对库根的路径。
+	 *
+	 * 1. 优先文件浏览器视图的内部索引 fileItems（{ 路径: { el } }）：
+	 *    新建/重命名/移动后该索引会同步，是权威数据；
+	 *    而 DOM 上的 data-path 在重命名后可能未更新（如仍为「未命名.md」）。
+	 * 2. 兜底读 DOM 上的 data-path（旧版本 Obsidian 提供）
 	 */
 	private resolveFilePath(el: HTMLElement, row: Element): string {
-		const direct =
-			el.getAttribute("data-path") ??
-			row.getAttribute("data-path") ??
-			el.querySelector<HTMLElement>("[data-path]")?.getAttribute("data-path") ??
-			row.querySelector<HTMLElement>("[data-path]")?.getAttribute("data-path");
-		if (direct) return direct;
-
 		try {
 			const explorer = this.app.workspace.getLeavesOfType("file-explorer")[0];
 			const view = explorer?.view as unknown as
 				| { fileItems?: Record<string, { el?: HTMLElement }> }
 				| undefined;
 			const items = view?.fileItems;
-			if (!items) return "";
-			for (const [path, item] of Object.entries(items)) {
-				if (item.el === el || item.el === row) return path;
-			}
-			for (const [path, item] of Object.entries(items)) {
-				if (item.el && (item.el.contains(el) || row.contains(item.el))) return path;
+			if (items) {
+				for (const [path, item] of Object.entries(items)) {
+					if (item.el === el || item.el === row) return path;
+				}
+				for (const [path, item] of Object.entries(items)) {
+					if (item.el && (item.el.contains(el) || row.contains(item.el))) return path;
+				}
 			}
 		} catch (err) {
 			console.error("[Folder Terminal] 反查文件路径失败:", err);
 		}
-		return "";
+
+		// 兜底：DOM 上的 data-path（旧版本 Obsidian 提供）
+		return (
+			el.getAttribute("data-path") ??
+			row.getAttribute("data-path") ??
+			el.querySelector<HTMLElement>("[data-path]")?.getAttribute("data-path") ??
+			row.querySelector<HTMLElement>("[data-path]")?.getAttribute("data-path") ??
+			""
+		);
 	}
 
 	private async copyFile(path: string, action: CopyAction): Promise<void> {

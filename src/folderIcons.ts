@@ -91,8 +91,6 @@ export class FolderIconManager {
 		if (row.querySelector(".ft-terminal-icon") || row.querySelector(".ft-folder-actions"))
 			return;
 
-		const path = this.resolveFolderPath(el, row);
-
 		// 1. 注入「在此打开终端」主图标
 		const btn = el.createEl("button", {
 			cls: "ft-terminal-icon",
@@ -108,7 +106,9 @@ export class FolderIconManager {
 			evt.preventDefault();
 			// 点击后释放焦点，避免 :focus-visible 让该行图标常驻、与悬停的其他行图标同时出现
 			btn.blur();
-			this.onOpen(path);
+			// 点击时重新解析路径：Obsidian 新建文件夹默认名「未命名」，
+			// 重命名后 DOM 节点不重建，注入时固化的 path 会过期
+			this.onOpen(this.resolveFolderPath(el, row));
 		});
 		el.appendChild(btn);
 
@@ -134,7 +134,8 @@ export class FolderIconManager {
 				evt.stopPropagation();
 				evt.preventDefault();
 				btnAction.blur();
-				void this.handleAction(path, action);
+				// 同终端图标：点击时重新解析路径，保证重命名后拿到最新路径
+				void this.handleAction(this.resolveFolderPath(el, row), action);
 			});
 		}
 		el.appendChild(group);
@@ -143,37 +144,40 @@ export class FolderIconManager {
 	/**
 	 * 解析文件夹相对库根的路径。
 	 *
-	 * 1. 优先 DOM 上的 data-path（旧版本 Obsidian 提供）
-	 * 2. Obsidian 1.13+ 移除了该属性：改用文件浏览器视图的内部索引
-	 *    fileItems（{ 路径: { el } }），用我们命中的行元素反查路径
+	 * 1. 优先文件浏览器视图的内部索引 fileItems（{ 路径: { el } }）：
+	 *    新建/重命名/移动后该索引会同步，是权威数据；
+	 *    而 DOM 上的 data-path 在重命名后可能未更新（如仍为「未命名」）。
+	 * 2. 兜底读 DOM 上的 data-path（旧版本 Obsidian 提供）
 	 */
 	private resolveFolderPath(el: HTMLElement, row: Element): string {
-		const direct =
-			el.getAttribute("data-path") ??
-			row.getAttribute("data-path") ??
-			el.querySelector<HTMLElement>("[data-path]")?.getAttribute("data-path") ??
-			row.querySelector<HTMLElement>("[data-path]")?.getAttribute("data-path");
-		if (direct) return direct;
-
 		try {
 			const explorer = this.app.workspace.getLeavesOfType("file-explorer")[0];
 			const view = explorer?.view as unknown as
 				| { fileItems?: Record<string, { el?: HTMLElement }> }
 				| undefined;
 			const items = view?.fileItems;
-			if (!items) return "";
-			// 精确匹配
-			for (const [path, item] of Object.entries(items)) {
-				if (item.el === el || item.el === row) return path;
-			}
-			// 兜底：包含关系（某些情况下 el 被重新渲染）
-			for (const [path, item] of Object.entries(items)) {
-				if (item.el && (item.el.contains(el) || row.contains(item.el))) return path;
+			if (items) {
+				// 精确匹配
+				for (const [path, item] of Object.entries(items)) {
+					if (item.el === el || item.el === row) return path;
+				}
+				// 兜底：包含关系（某些情况下 el 被重新渲染）
+				for (const [path, item] of Object.entries(items)) {
+					if (item.el && (item.el.contains(el) || row.contains(item.el))) return path;
+				}
 			}
 		} catch (err) {
 			console.error("[Folder Terminal] 反查文件夹路径失败:", err);
 		}
-		return "";
+
+		// 兜底：DOM 上的 data-path（旧版本 Obsidian 提供）
+		return (
+			el.getAttribute("data-path") ??
+			row.getAttribute("data-path") ??
+			el.querySelector<HTMLElement>("[data-path]")?.getAttribute("data-path") ??
+			row.querySelector<HTMLElement>("[data-path]")?.getAttribute("data-path") ??
+			""
+		);
 	}
 
 	/**
